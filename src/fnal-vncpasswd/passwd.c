@@ -191,17 +191,13 @@ int get_encrypt_settings(const struct syscall_ops *ops,
  * even if present in login.defs.
  */
 static int method_to_prefix(const char *method, char *prefix_out,
-                             size_t prefix_len) {
+                            size_t prefix_len) {
   static const struct {
     const char *name;
     const char *prefix;
   } methods[] = {
-    {"SHA512",   "$6$"},
-    {"SHA256",   "$5$"},
-    {"YESCRYPT", "$y$"},
-    {"BLOWFISH", "$2b$"},
-    {"BCRYPT",   "$2b$"},
-    {NULL,       NULL},
+      {"SHA512", "$6$"},    {"SHA256", "$5$"},  {"YESCRYPT", "$y$"},
+      {"BLOWFISH", "$2b$"}, {"BCRYPT", "$2b$"}, {NULL, NULL},
   };
 
   /*
@@ -358,7 +354,7 @@ int hash_password(const struct syscall_ops *ops, const char *password,
 
 int ensure_dir(const struct syscall_ops *ops, const char *path) {
   struct stat st;
-  char tmp[VNC_PATH_MAX];
+  char tmp[PATH_MAX];
   char *p;
 
   if (!ops || !path || path[0] == '\0') {
@@ -456,7 +452,7 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
 
 int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
                         const char *hash) {
-  char tmp_path[VNC_PATH_MAX];
+  char tmp_path[PATH_MAX];
   int fd;
   ssize_t written;
   size_t hash_len;
@@ -528,7 +524,9 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
    * was itself created with the wrong SELinux context.  Non-fatal.
    */
   if (ops->rename(tmp_path, path) < 0) {
+    saved_errno = errno;
     ops->unlink(tmp_path);
+    errno = saved_errno;
     return -1;
   }
 

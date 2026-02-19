@@ -1,28 +1,24 @@
 /**
  * vnc_path.h - VNC password file path construction
  *
- * Shared between pam_fnal_vncpasswd.so and fnal-vncpasswd.  Both tools
- * operate on the same per-user password file; this module encapsulates the
- * path construction so the location is defined exactly once.
+ * Shared between pam_fnal_vncpasswd.so and fnal-vncpasswd.  Both tools operate
+ * on the same per-user password file; this module encapsulates path
+ * construction so the canonical location is defined exactly once.
  *
- * WHY ONLY PATH CONSTRUCTION IS SHARED:
- * The home directory lookup is NOT shared here.  PAM uses getpwnam_r (lookup
- * by username supplied to the PAM stack), while fnal-vncpasswd uses
- * getpwuid_r (lookup by the calling process's uid).  The two lookups use
- * different keys, different error semantics, and run at different privilege
- * levels; merging them into a shared function would require threading in
- * syscall_ops and union-ing the two lookup modes for no gain.  Only the
- * snprintf pattern that converts a home directory into the canonical VNC
- * password directory or file path is genuinely duplicated.
+ * Only path construction is shared here.  Home directory lookup is
+ * intentionally left to each caller: PAM uses getpwnam_r() (keyed by the
+ * username supplied to the PAM stack) while fnal-vncpasswd uses getpwuid_r()
+ * (keyed by the calling process's UID).  The two lookups differ in key, error
+ * semantics, and privilege level; a shared wrapper would add complexity for
+ * no gain.
  *
- * PATH STRUCTURE (constants from autoconf.h, set at build time):
- *   directory : home_dir / VNC_PASSWD_DIR
+ * Path structure (constants from autoconf.h, set at build time)::
+ *
+ *   directory : <home_dir>/<VNC_PASSWD_DIR>
  *               e.g. /home/user/.config/vnc
- *   file      : home_dir / VNC_PASSWD_DIR / VNC_PASSWD_FILE
- *               e.g. /home/user/.config/vnc/fnal-vncpasswd
  *
- * CRYPTO BUFFER SIZES:
- * VNC_HASH_BUF_SIZE is defined in vnc_crypto.h, not here.
+ *   file      : <home_dir>/<VNC_PASSWD_DIR>/<VNC_PASSWD_FILE>
+ *               e.g. /home/user/.config/vnc/fnal-vncpasswd
  */
 
 #ifndef VNC_PATH_H
@@ -31,39 +27,35 @@
 #include <stddef.h>
 
 /**
- * VNC_PATH_MAX - maximum buffer size for VNC password file paths
- *
- * PATH_MAX is 4096 on Linux.  We use our own name to avoid pulling in
- * <linux/limits.h> and to make the intent explicit.
- */
-enum { VNC_PATH_MAX = 4096 };
-
-/**
  * build_vnc_dir_path - Construct the VNC configuration directory path
- * @home_dir: User's home directory (from passwd entry)
- * @buf:      Output buffer
- * @buflen:   Size of output buffer; VNC_PATH_MAX is always sufficient
+ * @home_dir: Absolute path to the user's home directory (from passwd entry).
+ *            Must be non-NULL and non-empty.
+ * @buf:      Output buffer to receive the constructed path.
+ * @buflen:   Size of @buf in bytes.  PATH_MAX is always sufficient.
  *
- * Constructs: home_dir / VNC_PASSWD_DIR
+ * Constructs: <home_dir>/<VNC_PASSWD_DIR>
  *
- * Returns: 0 on success, -1 on failure (EINVAL: bad args; ERANGE: truncated)
+ * Return: 0 on success, -1 on error with errno set to:
+ *         - EINVAL if @home_dir is NULL or empty, or @buf is NULL, or
+ *           @buflen is 0.
+ *         - ERANGE if the constructed path exceeds @buflen.
  */
 int build_vnc_dir_path(const char *home_dir, char *buf, size_t buflen);
 
 /**
  * build_vnc_passwd_path - Construct the VNC password file path
- * @home_dir:      User's home directory; ignored when file_override is set
- * @file_override: If non-NULL, copied verbatim into buf
- * @buf:           Output buffer
- * @buflen:        Size of output buffer; VNC_PATH_MAX is always sufficient
+ * @home_dir: Absolute path to the user's home directory (from passwd entry).
+ *            Must be non-NULL and non-empty.
+ * @buf:      Output buffer to receive the constructed path.
+ * @buflen:   Size of @buf in bytes.  PATH_MAX is always sufficient.
  *
- * When file_override is non-NULL, copies it as-is (path validation is
- * the caller's responsibility).  Otherwise constructs:
- *   home_dir / VNC_PASSWD_DIR / VNC_PASSWD_FILE
+ * Constructs: <home_dir>/<VNC_PASSWD_DIR>/<VNC_PASSWD_FILE>
  *
- * Returns: 0 on success, -1 on failure (EINVAL: bad args; ERANGE: truncated)
+ * Return: 0 on success, -1 on error with errno set to:
+ *         - EINVAL if @home_dir is NULL or empty, or @buf is NULL, or
+ *           @buflen is 0.
+ *         - ERANGE if the constructed path exceeds @buflen.
  */
-int build_vnc_passwd_path(const char *home_dir, const char *file_override,
-                          char *buf, size_t buflen);
+int build_vnc_passwd_path(const char *home_dir, char *buf, size_t buflen);
 
 #endif /* VNC_PATH_H */

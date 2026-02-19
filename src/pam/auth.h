@@ -139,9 +139,9 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  *
  * Full authentication sequence without PAM header dependency:
  * 1. mlock password buffer in RAM (non-fatal if it fails)
- * 2. If file_override: build path from it directly (skip home directory lookup)
- *    Otherwise: look up home directory via getpwnam_r, build canonical path
- *    via build_vnc_passwd_path()
+ * 2. If file_override: build path from it directly (skip home directory
+ * lookup) Otherwise: look up home directory via getpwnam_r, build canonical
+ * path via build_vnc_passwd_path()
  * 3. Open and validate the password file (TOCTOU-safe)
  * 4. Read stored hash from file
  * 5. Verify password (constant-time comparison)

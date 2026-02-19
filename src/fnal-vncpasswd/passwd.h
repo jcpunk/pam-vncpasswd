@@ -185,32 +185,11 @@ int ensure_dir(const struct syscall_ops *ops, const char *path);
 int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
                         const char *hash);
 
-/* ============================================================================
- * Password Reading
- * ============================================================================
+/*
+ * CLI password-reading helpers (read_password_interactive,
+ * read_password_noninteractive) are declared in vncpasswd_io.h.
+ * They are implemented in vncpasswd.c and are specific to the CLI tool;
+ * they must not be included by the PAM module or shared library consumers.
  */
-
-/**
- * read_password_interactive - Read password interactively with confirmation
- * @buf:    Output buffer
- * @buflen: Size of output buffer
- *
- * Prompts twice with terminal echo disabled; returns -1 if entries do not
- * match, if either is below MIN_PASSWORD_LENGTH, or above MAX_PASSWORD_LENGTH.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int read_password_interactive(char *buf, size_t buflen);
-
-/**
- * read_password_noninteractive - Read password from stdin (single line)
- * @buf:    Output buffer
- * @buflen: Size of output buffer
- *
- * Reads one line, enforces MIN_PASSWORD_LENGTH and MAX_PASSWORD_LENGTH.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int read_password_noninteractive(char *buf, size_t buflen);
 
 #endif /* PASSWD_H */

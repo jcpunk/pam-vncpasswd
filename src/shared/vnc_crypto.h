@@ -14,7 +14,7 @@
 /**
  * VNC_HASH_BUF_SIZE - buffer large enough for any crypt(3) output string
  *
- * CRYPT_OUTPUT_SIZE (384) is the maximum defined by libxcrypt.
+ * CRYPT_OUTPUT_SIZE is the maximum defined by libxcrypt in crypt.h.
  */
 enum { VNC_HASH_BUF_SIZE = CRYPT_OUTPUT_SIZE };
 

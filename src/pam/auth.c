@@ -11,6 +11,8 @@
  * - mlock() to prevent password pages from being swapped to disk
  */
 
+#include "auth.h"
+
 #include <crypt.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -23,7 +25,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "auth.h"
 #include "autoconf.h"
 #include "syscall_ops.h"
 #include "vnc_crypto.h"
@@ -41,10 +42,10 @@
  * are stable constants defined by the PAM specification (Linux-PAM, OpenPAM)
  * and do not change between versions.
  */
-#define PAM_SUCCESS          0
-#define PAM_AUTH_ERR         7
+#define PAM_SUCCESS 0
+#define PAM_AUTH_ERR 7
 #define PAM_AUTHINFO_UNAVAIL 9
-#define PAM_USER_UNKNOWN    10
+#define PAM_USER_UNKNOWN 10
 
 /* ============================================================================
  * PAM Argument Parsing
@@ -265,10 +266,10 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  * requiring goto.  Returns an open fd on success, -1 on failure.
  * On failure, *ret_pam is set to the appropriate PAM return code.
  */
-static int open_passwd_file(const struct syscall_ops *ops,
-                             const char *username, const char *file_override,
-                             bool nullok, int *ret_pam) {
-  char passwd_path[VNC_PATH_MAX];
+static int open_passwd_file(const struct syscall_ops *ops, const char *username,
+                            const char *file_override, bool nullok,
+                            int *ret_pam) {
+  char passwd_path[PATH_MAX];
   struct passwd pw;
   struct passwd *pwresult;
   char pwbuf[4096];
@@ -281,18 +282,33 @@ static int open_passwd_file(const struct syscall_ops *ops,
       *ret_pam = PAM_AUTH_ERR;
       return -1;
     }
+
+    /*
+     * SECURITY MODEL — file_override path:
+     *
+     * The file= PAM argument is set by root in /etc/pam.d/ — it is
+     * administrator-controlled, not user-controlled.  We therefore skip the
+     * uid/mode ownership checks that validate_passwd_file() enforces on
+     * per-user password files.  Those checks exist to prevent a malicious
+     * user from redirecting the module to a file they own or can write;
+     * they are not meaningful when the path is fixed in the system PAM
+     * configuration.
+     *
+     * What we DO still enforce:
+     *   O_NOFOLLOW  — no symlink-swap attack at the configured path.
+     *   O_NONBLOCK  — do not block on a FIFO at the configured path.
+     *   S_ISREG     — reject anything that is not a regular file.
+     *
+     * If this module is ever deployed in an environment where /etc/pam.d/
+     * fragments can be modified by unprivileged users, this bypass must be
+     * revisited and validate_passwd_file() called with an appropriate uid.
+     */
     fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0) {
-      *ret_pam = (errno == ENOENT && nullok) ? PAM_SUCCESS
-                                             : PAM_AUTHINFO_UNAVAIL;
+      *ret_pam =
+          (errno == ENOENT && nullok) ? PAM_SUCCESS : PAM_AUTHINFO_UNAVAIL;
       return -1;
     }
-    /*
-     * Validate that the override path is a regular file.  Without this
-     * check a FIFO at the override path would block on read indefinitely.
-     * An attacker who can create a FIFO at a predictable path could cause
-     * an auth hang; the S_ISREG guard closes that window.
-     */
     if (ops->fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
       ops->close(fd);
       *ret_pam = PAM_AUTH_ERR;
@@ -324,16 +340,15 @@ static int open_passwd_file(const struct syscall_ops *ops,
     return -1;
   }
 
-  if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path,
-                            sizeof(passwd_path)) < 0) {
+  if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path, sizeof(passwd_path)) <
+      0) {
     *ret_pam = PAM_AUTH_ERR;
     return -1;
   }
 
   fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
   if (fd < 0) {
-    *ret_pam = (errno == ENOENT && nullok) ? PAM_SUCCESS
-                                           : PAM_AUTHINFO_UNAVAIL;
+    *ret_pam = (errno == ENOENT && nullok) ? PAM_SUCCESS : PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
 
@@ -391,8 +406,8 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
     }
   }
 
-  result = (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS
-                                                        : PAM_AUTH_ERR;
+  result =
+      (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS : PAM_AUTH_ERR;
   explicit_bzero(hash, sizeof(hash));
   if (mlocked)
     ops->munlock(password, strlen(password) + 1);

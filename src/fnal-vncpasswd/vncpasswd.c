@@ -40,6 +40,7 @@
 #include "syscall_ops.h"
 #include "vnc_crypto.h"
 #include "vnc_path.h"
+#include "vncpasswd_io.h"
 
 /* ============================================================================
  * Terminal State Restoration on Signal
@@ -68,8 +69,8 @@
  * when no terminal has been opened yet.
  */
 static volatile sig_atomic_t g_term_saved = 0;
-static int                   g_term_fd    = -1;
-static struct termios        g_term_old;
+static volatile int g_term_fd = -1;
+static struct termios g_term_old; /* written once before handler is armed */
 
 static void restore_terminal_on_signal(int signo) {
   if (g_term_saved && g_term_fd >= 0)
@@ -93,7 +94,8 @@ static void restore_terminal_on_signal(int signo) {
  * displayed as the user types.  Registers a signal handler before disabling
  * echo so that SIGINT/SIGTERM/SIGHUP restore the terminal before exit.
  *
- * Returns: number of characters read (excluding newline) on success, -1 on error
+ * Returns: number of characters read (excluding newline) on success, -1 on
+ * error
  */
 static ssize_t read_password_from_terminal(const char *prompt, char *buf,
                                            size_t buflen) {
@@ -101,6 +103,7 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
   bool saved_term = false;
   int ttyfd;
   ssize_t nread = -1;
+  bool installed_handlers = false;
 
   struct sigaction sa_new, sa_old_int, sa_old_term, sa_old_hup;
 
@@ -125,9 +128,10 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
     sigemptyset(&sa_new.sa_mask);
     sa_new.sa_flags = SA_RESETHAND; /* remove handler after first delivery */
 
-    sigaction(SIGINT,  &sa_new, &sa_old_int);
+    sigaction(SIGINT, &sa_new, &sa_old_int);
     sigaction(SIGTERM, &sa_new, &sa_old_term);
-    sigaction(SIGHUP,  &sa_new, &sa_old_hup);
+    sigaction(SIGHUP, &sa_new, &sa_old_hup);
+    installed_handlers = true;
 
     /* Disable echo, enable newline echo so the cursor advances */
     new_term = g_term_old;
@@ -146,8 +150,11 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
   if (buflen > 0) {
     nread = read(ttyfd, buf, buflen - 1);
     if (nread > 0) {
-      /* Strip trailing newline */
+      /* Strip trailing newline, then carriage return (\r\n from some
+       * clients) */
       if (buf[nread - 1] == '\n')
+        nread--;
+      if (nread > 0 && buf[nread - 1] == '\r')
         nread--;
       buf[nread] = '\0';
     }
@@ -158,10 +165,11 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
     tcsetattr(ttyfd, TCSAFLUSH, &g_term_old);
     g_term_saved = 0;
   }
-
-  sigaction(SIGINT,  &sa_old_int,  NULL);
-  sigaction(SIGTERM, &sa_old_term, NULL);
-  sigaction(SIGHUP,  &sa_old_hup,  NULL);
+  if (installed_handlers) {
+    sigaction(SIGINT, &sa_old_int, NULL);
+    sigaction(SIGTERM, &sa_old_term, NULL);
+    sigaction(SIGHUP, &sa_old_hup, NULL);
+  }
 
   if (ttyfd != STDIN_FILENO)
     close(ttyfd);
@@ -267,8 +275,11 @@ int read_password_noninteractive(char *buf, size_t buflen) {
     return -1;
   }
 
-  /* Strip single trailing newline */
+  /* Strip single trailing newline, then carriage return (\r\n from some
+   * clients) */
   if (total > 0 && buf[total - 1] == '\n')
+    total--;
+  if (total > 0 && buf[total - 1] == '\r')
     total--;
   buf[total] = '\0';
 
@@ -349,10 +360,24 @@ int main(int argc, char *argv[]) {
   }
 
   /* Determine the password file path */
-  char passwd_path[VNC_PATH_MAX];
+  char passwd_path[PATH_MAX];
   if (file_override) {
-    if (build_vnc_passwd_path(NULL, file_override, passwd_path,
-                              sizeof(passwd_path)) < 0) {
+    if (file_override[0] == '/') {
+      /*
+       * Absolute paths are accepted from the CLI -f flag (administrator
+       * use). build_vnc_passwd_path intentionally rejects them to protect
+       * the PAM file= argument; bypass it here with an equivalent length
+       * check. Symlink and type validation are deferred to
+       * atomic_write_passwd (which creates a sibling temp file in the same
+       * directory).
+       */
+      int n = snprintf(passwd_path, sizeof(passwd_path), "%s", file_override);
+      if (n < 0 || (size_t)n >= sizeof(passwd_path)) {
+        fprintf(stderr, "File path invalid or too long\n");
+        return EXIT_FAILURE;
+      }
+    } else if (build_vnc_passwd_path(NULL, file_override, passwd_path,
+                                     sizeof(passwd_path)) < 0) {
       fprintf(stderr, "File path invalid or too long\n");
       return EXIT_FAILURE;
     }
@@ -360,30 +385,52 @@ int main(int argc, char *argv[]) {
     /* Get current user's home directory */
     struct passwd pw;
     struct passwd *pwresult;
-    char pwbuf[4096];
 
-    if (getpwuid_r(getuid(), &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
-        pwresult == NULL) {
-      fprintf(stderr, "Cannot determine home directory\n");
+    /*
+     * sysconf(_SC_GETPW_R_SIZE_MAX) returns the recommended buffer size for
+     * getpwuid_r(3).  POSIX permits -1 when there is no fixed limit (common
+     * on systems with LDAP/NIS where field lengths are unbounded); fall back
+     * to 4096 bytes, which is sufficient for all local accounts on supported
+     * RHEL/AlmaLinux releases.
+     */
+    long pw_bufsz = sysconf(_SC_GETPW_R_SIZE_MAX);
+    if (pw_bufsz <= 0)
+      pw_bufsz = 4096;
+
+    char *pwbuf = malloc((size_t)pw_bufsz);
+    if (!pwbuf) {
+      fprintf(stderr, "Cannot allocate memory for password lookup\n");
       return EXIT_FAILURE;
     }
 
-    char vnc_dir[VNC_PATH_MAX];
+    if (getpwuid_r(getuid(), &pw, pwbuf, (size_t)pw_bufsz, &pwresult) != 0 ||
+        pwresult == NULL) {
+      fprintf(stderr, "Cannot determine home directory\n");
+      free(pwbuf);
+      return EXIT_FAILURE;
+    }
+
+    char vnc_dir[PATH_MAX];
     if (build_vnc_dir_path(pw.pw_dir, vnc_dir, sizeof(vnc_dir)) < 0) {
       fprintf(stderr, "Home directory path too long\n");
+      free(pwbuf);
       return EXIT_FAILURE;
     }
 
     if (ensure_dir(&syscall_ops_default, vnc_dir) < 0) {
       fprintf(stderr, "Cannot create %s: %s\n", vnc_dir, strerror(errno));
+      free(pwbuf);
       return EXIT_FAILURE;
     }
 
     if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path,
                               sizeof(passwd_path)) < 0) {
       fprintf(stderr, "Password path too long\n");
+      free(pwbuf);
       return EXIT_FAILURE;
     }
+
+    free(pwbuf);
   }
 
   /* Read the new password */

@@ -92,13 +92,6 @@ const struct syscall_ops syscall_ops_default = {
 
     /*
      * Cryptographic operations
-     *
-     * NOTE ON YESCRYPT:
-     * crypt_gensalt_ra uses the count parameter differently per algorithm:
-     * - For SHA-512/SHA-256: count is the number of rounds (e.g., 65536)
-     * - For yescrypt ($y$): count is the cost factor (e.g., 5), NOT rounds
-     * - For bcrypt: count is log2(rounds) (e.g., 12)
-     * libxcrypt handles yescrypt parameter encoding internally.
      */
     .crypt_gensalt_ra = crypt_gensalt_ra,
     .crypt_r = crypt_r,
@@ -113,5 +106,4 @@ const struct syscall_ops syscall_ops_default = {
      * Memory management
      */
     .calloc = calloc,
-    .free = free,
 };
