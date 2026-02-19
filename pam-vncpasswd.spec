@@ -52,7 +52,8 @@ in /etc/login.defs (not SHA_CRYPT_MAX_ROUNDS, which is for SHA-crypt only).
 %files
 %defattr(0644,root,root,0755)
 %license LICENSE
-%doc %{_mandir}
+%{_mandir}/man8/pam_fnal_vncpasswd.8*
+%{_mandir}/man1/fnal-vncpasswd.1*
 %attr(0755,root,root) %{_bindir}/fnal-vncpasswd
 %attr(0755,root,root) %{_libdir}/security/pam_fnal_vncpasswd.so
 %dir %{_datadir}/pam-vncpasswd

@@ -107,7 +107,6 @@ static FILE *mock_fdopen_fail(int fd, const char *m) {
   return NULL;
 }
 static int mock_fclose_noop(FILE *f) { (void)f; return 0; }
-static int mock_close_noop(int fd)   { (void)fd; return 0; }
 
 static ssize_t mock_getrandom_ok(void *buf, size_t len, unsigned int flags) {
   (void)flags;
@@ -200,38 +199,6 @@ static int mock_getpwnam_r_notfound(const char *name, struct passwd *pw,
 static void setup_fgets_mock(const char *content) {
   g_mock_fgets_called = 0;
   snprintf(g_mock_fgets_content, sizeof(g_mock_fgets_content), "%s", content);
-}
-
-/*
- * Mock read implementations.
- *
- * WHY THESE EXIST:
- * read_passwd_hash() now calls ops->read() instead of the bare read(2) syscall.
- * These mocks let tests exercise all code paths in read_passwd_hash() —
- * including error and empty-file paths — without needing a real file on disk.
- */
-static const char *g_mock_read_data;  /* string to drip out byte-by-byte */
-static size_t      g_mock_read_pos;   /* current position in g_mock_read_data */
-
-static void setup_read_mock(const char *data) {
-  g_mock_read_data = data;
-  g_mock_read_pos  = 0;
-}
-
-/* Drip one byte at a time from g_mock_read_data, then return EOF. */
-static ssize_t mock_read_data(int fd, void *buf, size_t count) {
-  (void)fd; (void)count;
-  if (!g_mock_read_data || g_mock_read_data[g_mock_read_pos] == '\0')
-    return 0; /* EOF */
-  *(char *)buf = g_mock_read_data[g_mock_read_pos++];
-  return 1;
-}
-
-/* Always fail. */
-static ssize_t mock_read_fail(int fd, void *buf, size_t count) {
-  (void)fd; (void)buf; (void)count;
-  errno = EIO;
-  return -1;
 }
 
 /* ============================================================================
@@ -856,6 +823,22 @@ TEST(read_passwd_hash_null_ops) {
   TEST_ASSERT_EQ(errno, EINVAL, "NULL ops should set errno to EINVAL");
 }
 
+TEST(read_passwd_hash_fdopen_fails) {
+  /*
+   * fdopen() failure (e.g. ENOMEM): read_passwd_hash must close the fd and
+   * return -1.  The mock_close_noop is not needed here because the default
+   * ops.close (real close(2)) correctly handles the sentinel fd=42 by
+   * failing silently — what matters is the function returns -1.
+   */
+  struct syscall_ops ops = syscall_ops_default;
+  ops.fdopen = mock_fdopen_fail;
+  /* ops.close is the real close(2); fd=42 likely invalid but close is a
+   * best-effort call — the important observable is the return value. */
+  char buf[HASH_BUF_SIZE];
+  int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, -1, "fdopen failure should return -1");
+}
+
 /* ============================================================================
  * Tests: PAM Argument Parsing
  * ============================================================================
@@ -1114,6 +1097,30 @@ static int mock_mkdir_ok(const char *p, mode_t m) { (void)p; (void)m; return 0; 
 static int mock_mkdir_fail(const char *p, mode_t m) {
   (void)p; (void)m; errno = EACCES; return -1;
 }
+/* Returns EEXIST — simulates a concurrent-create race with ensure_dir. */
+static int mock_mkdir_eexist(const char *p, mode_t m) {
+  (void)p; (void)m; errno = EEXIST; return -1;
+}
+
+/*
+ * Stateful lstat mock: returns ENOENT on the first call, then returns a
+ * directory on subsequent calls.  Used to model the EEXIST race scenario
+ * where a concurrent process creates a directory between our lstat() and
+ * mkdir().
+ */
+static int g_mock_lstat_calls;
+
+static int mock_lstat_noent_then_isdir(const char *p, struct stat *st) {
+  (void)p;
+  g_mock_lstat_calls++;
+  if (g_mock_lstat_calls == 1) {
+    errno = ENOENT;
+    return -1;
+  }
+  memset(st, 0, sizeof(*st));
+  st->st_mode = S_IFDIR | 0700;
+  return 0;
+}
 
 TEST(ensure_dir_creates_new) {
   struct syscall_ops ops = syscall_ops_default;
@@ -1171,6 +1178,64 @@ TEST(ensure_dir_dotdot_rejected) {
   TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/a/.."), -1,
                  "Path ending with /.. should be rejected");
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for /..");
+}
+
+/*
+ * EEXIST race: mkdir reports the directory already exists (a concurrent
+ * process beat us to it). ensure_dir must call lstat() to confirm the
+ * existing entry is a directory and then return success.
+ */
+TEST(ensure_dir_eexist_race_accepted) {
+  struct syscall_ops ops = syscall_ops_default;
+  g_mock_lstat_calls = 0;
+  /* First lstat → ENOENT (triggers mkdir); second lstat → directory */
+  ops.lstat = mock_lstat_noent_then_isdir;
+  ops.mkdir = mock_mkdir_eexist;
+  /* /fakedir has no intermediate slashes to process in the loop, so only
+   * the final-component code path is exercised. */
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/fakedir"), 0,
+                 "EEXIST race where result is a directory should succeed");
+}
+
+/*
+ * EEXIST race but the post-EEXIST lstat fails (e.g. the entry was removed
+ * again, or it was never a directory).  ensure_dir must return -1.
+ */
+TEST(ensure_dir_eexist_not_a_dir) {
+  struct syscall_ops ops = syscall_ops_default;
+  /* mock_lstat_noent always returns ENOENT — the post-EEXIST lstat also
+   * fails, so S_ISDIR cannot be confirmed → must return -1. */
+  ops.lstat = mock_lstat_noent;
+  ops.mkdir = mock_mkdir_eexist;
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/fakedir"), -1,
+                 "EEXIST race where post-EEXIST lstat fails should return -1");
+}
+
+/*
+ * When the file-override path is a non-regular file (e.g. FIFO, device),
+ * authenticate_vnc_user() must reject it with PAM_AUTH_ERR.
+ * This exercises the new fstat + S_ISREG guard added to the override branch.
+ */
+TEST(pam_auth_file_override_non_regular) {
+  char hash[HASH_BUF_SIZE];
+  make_sha512_hash("goodpass", hash, sizeof(hash));
+  setup_auth_hash_file(hash);
+
+  struct syscall_ops ops = syscall_ops_default;
+  ops.open  = mock_auth_open;
+  /* Report the fd as pointing to a non-regular file (block device) */
+  g_mock_fstat_uid  = getuid();
+  g_mock_fstat_mode = 0600;
+  g_mock_fstat_type = 3; /* S_IFBLK — non-regular */
+  ops.fstat = mock_fstat_ok;
+  ops.mlock   = mock_mlock_ok;
+  ops.munlock = mock_munlock_ok;
+
+  TEST_ASSERT_EQ(
+      authenticate_vnc_user(&ops, "u", "goodpass", g_auth_tmpfile, false),
+      PAM_AUTH_ERR,
+      "Non-regular file-override must return PAM_AUTH_ERR");
+  cleanup_auth_hash_file();
 }
 
 /* ============================================================================
@@ -1231,12 +1296,13 @@ int main(int argc, char **argv) {
   RUN_TEST(validate_passwd_file_open_fails);
   RUN_TEST(validate_passwd_file_fstat_fails);
 
-  /* read_passwd_hash — exercises ops->read mock */
+  /* read_passwd_hash — exercises ops->fdopen + ops->fgets mocks */
   RUN_TEST(read_passwd_hash_success);
   RUN_TEST(read_passwd_hash_with_newline);
   RUN_TEST(read_passwd_hash_empty_file);
   RUN_TEST(read_passwd_hash_read_fails);
   RUN_TEST(read_passwd_hash_null_ops);
+  RUN_TEST(read_passwd_hash_fdopen_fails);
 
   /* PAM argument parsing */
   RUN_TEST(parse_args_no_args);
@@ -1268,6 +1334,11 @@ int main(int argc, char **argv) {
   RUN_TEST(ensure_dir_not_a_directory);
   RUN_TEST(ensure_dir_null_path);
   RUN_TEST(ensure_dir_dotdot_rejected);
+  RUN_TEST(ensure_dir_eexist_race_accepted);
+  RUN_TEST(ensure_dir_eexist_not_a_dir);
+
+  /* file-override security */
+  RUN_TEST(pam_auth_file_override_non_regular);
 
   return TEST_EXECUTE();
 }

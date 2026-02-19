@@ -412,8 +412,12 @@ int validate_passwd_file(const struct syscall_ops *ops, const char *path,
     return -1;
   }
 
-  /* O_NOFOLLOW prevents symlink attacks (TOCTOU) */
-  fd = ops->open(path, O_RDONLY | O_NOFOLLOW);
+  /* O_NOFOLLOW prevents symlink attacks (TOCTOU).
+   * O_NONBLOCK prevents blocking if path happens to be a FIFO — opening a
+   * FIFO without O_NONBLOCK blocks until a writer appears, which is a DoS
+   * vector.  The subsequent S_ISREG check rejects FIFOs regardless, but we
+   * must not block waiting for open() to return before we can check. */
+  fd = ops->open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   if (fd < 0)
     return -1;
 
@@ -545,6 +549,7 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
   char pwbuf[4096];
   char passwd_path[PAM_ARGS_FILE_MAX];
   char hash[HASH_BUF_SIZE];
+  struct stat st;
   int fd;
   int ret;
   bool mlocked = false;
@@ -574,9 +579,22 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
         goto out;
       }
     }
-    fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW);
+    fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
     if (fd < 0) {
       ret = (errno == ENOENT && nullok) ? PAM_SUCCESS : PAM_AUTHINFO_UNAVAIL;
+      goto out;
+    }
+    /*
+     * Validate that the override path is a regular file.  Without this check
+     * a FIFO at the override path would have been opened non-blocking above
+     * but would then be read from indefinitely.  An attacker who can create
+     * a FIFO at a predictable path could cause an auth hang; the S_ISREG
+     * guard closes that window.  Mirror the same validation used by the
+     * normal (non-override) path through validate_passwd_file().
+     */
+    if (ops->fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+      ops->close(fd);
+      ret = PAM_AUTH_ERR;
       goto out;
     }
   } else {
@@ -693,8 +711,17 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
         return -1;
       }
     } else if (errno == ENOENT) {
-      if (ops->mkdir(tmp, 0700) < 0)
-        return -1;
+      if (ops->mkdir(tmp, 0700) < 0) {
+        /*
+         * EEXIST race: another process created the directory between our
+         * lstat() and mkdir().  Accept it if the result is a directory;
+         * fail for any other errno or if the existing entry is not a dir.
+         */
+        if (errno != EEXIST) return -1;
+        struct stat eexist_st;
+        if (ops->lstat(tmp, &eexist_st) < 0 || !S_ISDIR(eexist_st.st_mode))
+          return -1;
+      }
     } else {
       return -1;
     }
@@ -714,8 +741,13 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
   if (errno != ENOENT)
     return -1;
 
-  if (ops->mkdir(tmp, 0700) < 0)
-    return -1;
+  if (ops->mkdir(tmp, 0700) < 0) {
+    /* EEXIST race: accept if the concurrent create produced a directory. */
+    if (errno != EEXIST) return -1;
+    struct stat eexist_st;
+    if (ops->lstat(tmp, &eexist_st) < 0 || !S_ISDIR(eexist_st.st_mode))
+      return -1;
+  }
 
   return 0;
 }
