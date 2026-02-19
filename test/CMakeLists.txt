@@ -56,7 +56,10 @@ endif()
 # Helper macro
 
 macro(add_unit_test TEST_NAME)
-  add_executable(${TEST_NAME} test/${TEST_NAME}.c ${PAM_VNCPASSWD_LIB_SOURCES})
+  # vncpasswd_core is an OBJECT library; linking it pulls in its compiled
+  # objects (pam_fnal_vncpasswd.c, syscall_ops_default.c) and its PUBLIC
+  # dependencies (PkgConfig::LIBXCRYPT, selinux_dep).
+  add_executable(${TEST_NAME} test/${TEST_NAME}.c)
 
   target_compile_definitions(${TEST_NAME} PRIVATE _GNU_SOURCE)
   target_compile_features(
@@ -65,17 +68,9 @@ macro(add_unit_test TEST_NAME)
 
   target_include_directories(
     ${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
-                         ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR}
-                         ${LIBXCRYPT_INCLUDE_DIRS})
+                         ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR})
 
-  set(TEST_LIBS ${LIBXCRYPT_LIBRARIES})
-  if(HAVE_SELINUX)
-    target_compile_definitions(${TEST_NAME} PRIVATE HAVE_SELINUX)
-    target_include_directories(${TEST_NAME} PRIVATE ${SELINUX_INCLUDE_DIR})
-    list(APPEND TEST_LIBS ${SELINUX_LIBRARY})
-  endif()
-
-  target_link_libraries(${TEST_NAME} PRIVATE ${TEST_LIBS})
+  target_link_libraries(${TEST_NAME} PRIVATE vncpasswd_core)
 
   if(HAVE_COVERAGE_TOOLS)
     target_compile_options(${TEST_NAME} PRIVATE ${COVERAGE_COMPILE_FLAGS})
@@ -97,9 +92,9 @@ if(BUILD_TESTING)
   add_unit_test(test_pam_fnal_vncpasswd)
 
   # test_vncpasswd also needs vncpasswd.c (with VNCPASSWD_TESTING to suppress main())
+  # Link vncpasswd_core to pull in the shared core objects and their deps.
   add_executable(test_vncpasswd
                  ${CMAKE_SOURCE_DIR}/test/test_vncpasswd.c
-                 ${PAM_VNCPASSWD_LIB_SOURCES}
                  ${CMAKE_SOURCE_DIR}/src/vncpasswd.c)
 
   target_compile_definitions(test_vncpasswd PRIVATE _GNU_SOURCE VNCPASSWD_TESTING)
@@ -108,16 +103,9 @@ if(BUILD_TESTING)
                            c_static_assert)
   target_include_directories(
     test_vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
-                           ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR}
-                           ${LIBXCRYPT_INCLUDE_DIRS})
+                           ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR})
 
-  set(TEST_VNCPASSWD_LIBS ${LIBXCRYPT_LIBRARIES})
-  if(HAVE_SELINUX)
-    target_compile_definitions(test_vncpasswd PRIVATE HAVE_SELINUX)
-    target_include_directories(test_vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
-    list(APPEND TEST_VNCPASSWD_LIBS ${SELINUX_LIBRARY})
-  endif()
-  target_link_libraries(test_vncpasswd PRIVATE ${TEST_VNCPASSWD_LIBS})
+  target_link_libraries(test_vncpasswd PRIVATE vncpasswd_core)
 
   if(HAVE_COVERAGE_TOOLS)
     target_compile_options(test_vncpasswd PRIVATE ${COVERAGE_COMPILE_FLAGS})
