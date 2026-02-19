@@ -1,17 +1,17 @@
 /**
  * vncpasswd.c - fnal-vncpasswd CLI tool
  *
- * Sets a per-user VNC password in ~/.config/vnc/fnal_vncpasswd using crypt(3) hashing.
- * The password file is compatible with pam_fnal_vncpasswd.so authentication.
+ * Sets a per-user VNC password in ~/.config/vnc/fnal_vncpasswd using crypt(3)
+ * hashing. The password file is compatible with pam_fnal_vncpasswd.so
+ * authentication.
  *
  * USAGE:
  *   fnal-vncpasswd [-f file] [-n] [-h] [-v]
  *
  * OPTIONS:
- *   -f <file>   Write to a specific file instead of ~/.config/vnc/fnal_vncpasswd
- *   -n          Non-interactive: read password from stdin (no confirmation)
- *   -h          Show help
- *   -v          Show version
+ *   -f <file>   Write to a specific file instead of
+ * ~/.config/vnc/fnal_vncpasswd -n          Non-interactive: read password from
+ * stdin (no confirmation) -h          Show help -v          Show version
  *
  * SECURITY:
  * - Reads ENCRYPT_METHOD and cost factors from /etc/login.defs
@@ -55,8 +55,8 @@
  *
  * Returns: number of characters read on success, -1 on error
  */
-static ssize_t read_password_from_terminal(const char *prompt,
-                                           char *buf, size_t buflen) {
+static ssize_t read_password_from_terminal(const char *prompt, char *buf,
+                                           size_t buflen) {
   struct termios old_term, new_term;
   bool saved_term = false;
   int ttyfd;
@@ -152,8 +152,8 @@ int read_password_interactive(char *buf, size_t buflen) {
     return -1;
   }
 
-  n2 = read_password_from_terminal("Confirm VNC password: ",
-                                   confirm, sizeof(confirm));
+  n2 = read_password_from_terminal("Confirm VNC password: ", confirm,
+                                   sizeof(confirm));
   if (n2 < 0) {
     explicit_bzero(buf, buflen);
     explicit_bzero(confirm, sizeof(confirm));
@@ -241,7 +241,8 @@ static void usage(const char *prog) {
           "Set the VNC password for use with pam_fnal_vncpasswd.so\n"
           "\n"
           "Options:\n"
-          "  -f <file>  Write to a specific file (default: ~/.config/vnc/fnal_vncpasswd)\n"
+          "  -f <file>  Write to a specific file (default: "
+          "~/.config/vnc/fnal_vncpasswd)\n"
           "  -n         Non-interactive: read password from stdin\n"
           "  -h         Show this help\n"
           "  -v         Show version\n",
@@ -275,8 +276,8 @@ int main(int argc, char *argv[]) {
 
   /* Read encryption settings from login.defs */
   struct encrypt_settings settings;
-  if (get_encrypt_settings(&syscall_ops_default,
-                           LOGIN_DEFS_PATH, &settings) < 0) {
+  if (get_encrypt_settings(&syscall_ops_default, LOGIN_DEFS_PATH, &settings) <
+      0) {
     fprintf(stderr, "Failed to read encryption settings: %s\n",
             strerror(errno));
     return EXIT_FAILURE;
@@ -285,8 +286,7 @@ int main(int argc, char *argv[]) {
   /* Determine the password file path */
   char passwd_path[PAM_ARGS_FILE_MAX];
   if (file_override) {
-    if (snprintf(passwd_path, sizeof(passwd_path),
-                 "%s", file_override) < 0) {
+    if (snprintf(passwd_path, sizeof(passwd_path), "%s", file_override) < 0) {
       fprintf(stderr, "File path too long\n");
       return EXIT_FAILURE;
     }
@@ -296,15 +296,15 @@ int main(int argc, char *argv[]) {
     struct passwd *pwresult;
     char pwbuf[4096];
 
-    if (getpwuid_r(getuid(), &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0
-        || pwresult == NULL) {
+    if (getpwuid_r(getuid(), &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
+        pwresult == NULL) {
       fprintf(stderr, "Cannot determine home directory\n");
       return EXIT_FAILURE;
     }
 
     char vnc_dir[PAM_ARGS_FILE_MAX];
-    if (snprintf(vnc_dir, sizeof(vnc_dir), "%s/%s",
-                 pw.pw_dir, VNC_PASSWD_DIR) < 0) {
+    if (snprintf(vnc_dir, sizeof(vnc_dir), "%s/%s", pw.pw_dir, VNC_PASSWD_DIR) <
+        0) {
       fprintf(stderr, "Home directory path too long\n");
       return EXIT_FAILURE;
     }
@@ -314,8 +314,8 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if (snprintf(passwd_path, sizeof(passwd_path), "%s/%s",
-                 vnc_dir, VNC_PASSWD_FILE) < 0) {
+    if (snprintf(passwd_path, sizeof(passwd_path), "%s/%s", vnc_dir,
+                 VNC_PASSWD_FILE) < 0) {
       fprintf(stderr, "Password path too long\n");
       return EXIT_FAILURE;
     }
@@ -338,8 +338,8 @@ int main(int argc, char *argv[]) {
 
   /* Hash the password */
   char hash[HASH_BUF_SIZE];
-  if (hash_password(&syscall_ops_default, password, &settings,
-                    hash, sizeof(hash)) < 0) {
+  if (hash_password(&syscall_ops_default, password, &settings, hash,
+                    sizeof(hash)) < 0) {
     fprintf(stderr, "Failed to hash password: %s\n", strerror(errno));
     explicit_bzero(password, sizeof(password));
     explicit_bzero(hash, sizeof(hash));
@@ -349,8 +349,8 @@ int main(int argc, char *argv[]) {
 
   /* Write the hash atomically */
   if (atomic_write_passwd(&syscall_ops_default, passwd_path, hash) < 0) {
-    fprintf(stderr, "Failed to write password file %s: %s\n",
-            passwd_path, strerror(errno));
+    fprintf(stderr, "Failed to write password file %s: %s\n", passwd_path,
+            strerror(errno));
     explicit_bzero(hash, sizeof(hash));
     return EXIT_FAILURE;
   }

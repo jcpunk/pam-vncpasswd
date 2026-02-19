@@ -96,9 +96,10 @@ struct syscall_ops {
    * User database operations
    *
    * WHY WE NEED THESE:
-   * Must look up the user's home directory to find ~/.config/vnc/fnal_vncpasswd.
-   * Production reads from /etc/passwd + NSS. Tests provide controlled
-   * user database without requiring actual system users.
+   * Must look up the user's home directory to find
+   * ~/.config/vnc/fnal_vncpasswd. Production reads from /etc/passwd + NSS.
+   * Tests provide controlled user database without requiring actual system
+   * users.
    *
    * THREAD SAFETY:
    * getpwnam_r is the reentrant version (vs getpwnam).

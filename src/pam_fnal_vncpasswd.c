@@ -51,10 +51,10 @@
  * These match the integer values defined by the PAM standard.
  * pam_entry.c (which includes the real PAM headers) uses the real constants.
  */
-#define PAM_SUCCESS          0
-#define PAM_AUTH_ERR         7
+#define PAM_SUCCESS 0
+#define PAM_AUTH_ERR 7
 #define PAM_AUTHINFO_UNAVAIL 9
-#define PAM_USER_UNKNOWN     10
+#define PAM_USER_UNKNOWN 10
 
 /* ============================================================================
  * login.defs Parsing
@@ -70,8 +70,8 @@
  *
  * Returns: 1 if key was found and value extracted, 0 otherwise
  */
-static int parse_login_defs_line(char *line, const char *key,
-                                 char *value_out, size_t value_len) {
+static int parse_login_defs_line(char *line, const char *key, char *value_out,
+                                 size_t value_len) {
   char *p;
   size_t key_len;
 
@@ -107,7 +107,8 @@ static int parse_login_defs_line(char *line, const char *key,
 
   /* Strip trailing whitespace and newline */
   char *end = p + strlen(p) - 1;
-  while (end > p && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
+  while (end > p &&
+         (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
     *end-- = '\0';
 
   if (strlen(p) == 0)
@@ -139,8 +140,8 @@ int get_encrypt_settings(const struct syscall_ops *ops,
 
   /* Initialize with compiled-in defaults */
   {
-    int _snret = snprintf(settings->method, sizeof(settings->method),
-                          "%s", DEFAULT_ENCRYPT_METHOD);
+    int _snret = snprintf(settings->method, sizeof(settings->method), "%s",
+                          DEFAULT_ENCRYPT_METHOD);
     if (_snret < 0 || (size_t)_snret >= sizeof(settings->method)) {
       errno = EINVAL;
       return -1;
@@ -159,8 +160,8 @@ int get_encrypt_settings(const struct syscall_ops *ops,
     if (!have_method &&
         parse_login_defs_line(line, "ENCRYPT_METHOD", value, sizeof(value))) {
       {
-        int _snret = snprintf(settings->method, sizeof(settings->method),
-                              "%s", value);
+        int _snret =
+            snprintf(settings->method, sizeof(settings->method), "%s", value);
         if (_snret > 0 && (size_t)_snret < sizeof(settings->method))
           have_method = true;
       }
@@ -173,8 +174,8 @@ int get_encrypt_settings(const struct syscall_ops *ops,
      * SHA_CRYPT_MAX_ROUNDS — yescrypt uses a different cost scale.
      */
     if (!have_yescrypt_cost &&
-        parse_login_defs_line(line, "YESCRYPT_COST_FACTOR",
-                              value, sizeof(value))) {
+        parse_login_defs_line(line, "YESCRYPT_COST_FACTOR", value,
+                              sizeof(value))) {
       char *endptr;
       unsigned long v = strtoul(value, &endptr, 10);
       if (*endptr == '\0' && v > 0) {
@@ -188,9 +189,8 @@ int get_encrypt_settings(const struct syscall_ops *ops,
      * SHA_CRYPT_MAX_ROUNDS: controls the "rounds=N" prefix for
      * SHA-256 and SHA-512 salts. Has no effect on yescrypt.
      */
-    if (!have_sha_rounds &&
-        parse_login_defs_line(line, "SHA_CRYPT_MAX_ROUNDS",
-                              value, sizeof(value))) {
+    if (!have_sha_rounds && parse_login_defs_line(line, "SHA_CRYPT_MAX_ROUNDS",
+                                                  value, sizeof(value))) {
       char *endptr;
       unsigned long v = strtoul(value, &endptr, 10);
       if (*endptr == '\0' && v > 0) {
@@ -214,20 +214,13 @@ int get_encrypt_settings(const struct syscall_ops *ops,
  * method_to_prefix - Convert ENCRYPT_METHOD name to crypt prefix
  */
 static int method_to_prefix(const char *method, char *prefix_out,
-                             size_t prefix_len) {
+                            size_t prefix_len) {
   static const struct {
     const char *name;
     const char *prefix;
-  } methods[] = {
-    { "SHA512",   "$6$"  },
-    { "SHA256",   "$5$"  },
-    { "YESCRYPT", "$y$"  },
-    { "MD5",      "$1$"  },
-    { "BLOWFISH", "$2b$" },
-    { "BCRYPT",   "$2b$" },
-    { "DES",      ""     },
-    { NULL,       NULL   }
-  };
+  } methods[] = {{"SHA512", "$6$"}, {"SHA256", "$5$"},    {"YESCRYPT", "$y$"},
+                 {"MD5", "$1$"},    {"BLOWFISH", "$2b$"}, {"BCRYPT", "$2b$"},
+                 {"DES", ""},       {NULL, NULL}};
 
   for (int i = 0; methods[i].name != NULL; i++) {
     if (strcmp(method, methods[i].name) == 0) {
@@ -243,8 +236,8 @@ static int method_to_prefix(const char *method, char *prefix_out,
 }
 
 int generate_salt(const struct syscall_ops *ops,
-                  const struct encrypt_settings *settings,
-                  char *salt_buf, size_t salt_len) {
+                  const struct encrypt_settings *settings, char *salt_buf,
+                  size_t salt_len) {
   char prefix[16];
   unsigned long count;
   char rbytes[32];
@@ -306,14 +299,14 @@ int generate_salt(const struct syscall_ops *ops,
  */
 
 int hash_password(const struct syscall_ops *ops, const char *password,
-                  const struct encrypt_settings *settings,
-                  char *hash_buf, size_t hash_len) {
+                  const struct encrypt_settings *settings, char *hash_buf,
+                  size_t hash_len) {
   char salt[SALT_BUF_SIZE];
   struct crypt_data cd;
   char *result;
 
-  if (!ops || !password || *password == '\0' || !settings ||
-      !hash_buf || hash_len == 0) {
+  if (!ops || !password || *password == '\0' || !settings || !hash_buf ||
+      hash_len == 0) {
     errno = EINVAL;
     return -1;
   }
@@ -448,8 +441,8 @@ int validate_passwd_file(const struct syscall_ops *ops, const char *path,
   return fd;
 }
 
-int read_passwd_hash(const struct syscall_ops *ops, int fd,
-                     char *hash_buf, size_t hash_len) {
+int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
+                     size_t hash_len) {
   FILE *fp;
   char *result;
   char *p;
@@ -572,8 +565,8 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
 
   if (file_override) {
     {
-      int _snret = snprintf(passwd_path, sizeof(passwd_path),
-                            "%s", file_override);
+      int _snret =
+          snprintf(passwd_path, sizeof(passwd_path), "%s", file_override);
       if (_snret < 0 || (size_t)_snret >= sizeof(passwd_path)) {
         ret = PAM_AUTH_ERR;
         goto out;
@@ -598,8 +591,8 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
       goto out;
     }
   } else {
-    if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0
-        || pwresult == NULL) {
+    if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
+        pwresult == NULL) {
       /*
        * USER ENUMERATION NOTE:
        * We intentionally return PAM_USER_UNKNOWN (not PAM_AUTH_ERR) for
@@ -642,7 +635,8 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
     goto out_wipe;
   }
 
-  ret = (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS : PAM_AUTH_ERR;
+  ret =
+      (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS : PAM_AUTH_ERR;
 
 out_wipe:
   explicit_bzero(hash, sizeof(hash));
@@ -676,8 +670,7 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
    */
   {
     size_t plen = strlen(path);
-    if (strstr(path, "/../") != NULL ||
-        strncmp(path, "../", 3) == 0 ||
+    if (strstr(path, "/../") != NULL || strncmp(path, "../", 3) == 0 ||
         (plen >= 3 && strcmp(path + plen - 3, "/..") == 0) ||
         strcmp(path, "..") == 0) {
       errno = EINVAL;
@@ -715,9 +708,11 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
         /*
          * EEXIST race: another process created the directory between our
          * lstat() and mkdir().  Accept it if the result is a directory;
-         * fail for any other errno or if the existing entry is not a dir.
+         * fail for any other errno or if the existing entry is not a
+         * dir.
          */
-        if (errno != EEXIST) return -1;
+        if (errno != EEXIST)
+          return -1;
         struct stat eexist_st;
         if (ops->lstat(tmp, &eexist_st) < 0 || !S_ISDIR(eexist_st.st_mode))
           return -1;
@@ -743,7 +738,8 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
 
   if (ops->mkdir(tmp, 0700) < 0) {
     /* EEXIST race: accept if the concurrent create produced a directory. */
-    if (errno != EEXIST) return -1;
+    if (errno != EEXIST)
+      return -1;
     struct stat eexist_st;
     if (ops->lstat(tmp, &eexist_st) < 0 || !S_ISDIR(eexist_st.st_mode))
       return -1;
@@ -817,12 +813,11 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
 
   return 0;
 
-fail:
-  {
-    int saved = errno;
-    ops->close(fd);
-    ops->unlink(tmp_path);
-    errno = saved;
-    return -1;
-  }
+fail: {
+  int saved = errno;
+  ops->close(fd);
+  ops->unlink(tmp_path);
+  errno = saved;
+  return -1;
+}
 }

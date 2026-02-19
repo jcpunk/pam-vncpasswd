@@ -35,10 +35,6 @@
  * authenticate_vnc_user().
  */
 
-#include "autoconf.h"
-#include "pam_fnal_vncpasswd.h"
-#include "syscall_ops.h"
-
 #include <crypt.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -50,14 +46,17 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "autoconf.h"
+#include "pam_fnal_vncpasswd.h"
+#include "syscall_ops.h"
 #include "test_framework.h"
 
 /* Minimal PAM return codes for tests */
 #ifndef PAM_SUCCESS
-#define PAM_SUCCESS          0
-#define PAM_AUTH_ERR         7
+#define PAM_SUCCESS 0
+#define PAM_AUTH_ERR 7
 #define PAM_AUTHINFO_UNAVAIL 9
-#define PAM_USER_UNKNOWN     10
+#define PAM_USER_UNKNOWN 10
 #endif
 
 /* ============================================================================
@@ -68,18 +67,21 @@
 static char g_mock_tmpfile_path[256];
 
 static int mock_mkdir_ok(const char *p, mode_t m) {
-  (void)p; (void)m;
+  (void)p;
+  (void)m;
   return 0;
 }
 static int mock_mkdir_fail(const char *p, mode_t m) {
-  (void)p; (void)m;
+  (void)p;
+  (void)m;
   errno = EACCES;
   return -1;
 }
 
 /* lstat mocks */
 static int mock_lstat_noent(const char *p, struct stat *st) {
-  (void)p; (void)st;
+  (void)p;
+  (void)st;
   errno = ENOENT;
   return -1;
 }
@@ -116,7 +118,8 @@ static int mock_fsync_fail(int fd) {
 }
 
 static int mock_rename_fail(const char *o, const char *n) {
-  (void)o; (void)n;
+  (void)o;
+  (void)n;
   errno = EXDEV;
   return -1;
 }
@@ -124,12 +127,21 @@ static int mock_rename_fail(const char *o, const char *n) {
 /* mock_open for auth tests */
 static char g_auth_file[256];
 static int mock_auth_open(const char *p, int f, ...) {
-  (void)p; (void)f;
+  (void)p;
+  (void)f;
   return open(g_auth_file, O_RDONLY);
 }
 
-static int mock_mlock_ok(const void *a, size_t l) { (void)a; (void)l; return 0; }
-static int mock_munlock_ok(const void *a, size_t l) { (void)a; (void)l; return 0; }
+static int mock_mlock_ok(const void *a, size_t l) {
+  (void)a;
+  (void)l;
+  return 0;
+}
+static int mock_munlock_ok(const void *a, size_t l) {
+  (void)a;
+  (void)l;
+  return 0;
+}
 
 /* ============================================================================
  * Tests: Directory Creation (ensure_dir)
@@ -175,8 +187,7 @@ TEST(ensure_dir_wrong_permissions) {
 
 TEST(ensure_dir_null_path) {
   struct syscall_ops ops = syscall_ops_default;
-  TEST_ASSERT_EQ(ensure_dir(&ops, NULL), -1,
-                 "NULL path should fail");
+  TEST_ASSERT_EQ(ensure_dir(&ops, NULL), -1, "NULL path should fail");
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL");
 }
 
@@ -193,8 +204,7 @@ TEST(atomic_write_success) {
   close(dfd);
   unlink(dest);
 
-  int rc = atomic_write_passwd(&ops, dest,
-                               "$6$rounds=65536$salt$hashvalue");
+  int rc = atomic_write_passwd(&ops, dest, "$6$rounds=65536$salt$hashvalue");
   TEST_ASSERT_EQ(rc, 0, "Atomic write should succeed");
 
   /* Verify file exists and has correct permissions */
@@ -271,8 +281,7 @@ TEST(atomic_write_sets_permissions) {
 
   struct stat st;
   TEST_ASSERT_EQ(stat(dest, &st), 0, "File should exist");
-  TEST_ASSERT_EQ((long)(st.st_mode & 0777), (long)0600,
-                 "File must be 0600");
+  TEST_ASSERT_EQ((long)(st.st_mode & 0777), (long)0600, "File must be 0600");
   unlink(dest);
 }
 
@@ -305,11 +314,19 @@ static char *mock_fgets_vncpasswd(char *str, int n, FILE *stream) {
   return (written > 0) ? str : NULL;
 }
 static FILE *mock_fopen_ok_v(const char *p, const char *m) {
-  (void)p; (void)m; return (FILE *)0x1;
+  (void)p;
+  (void)m;
+  return (FILE *)0x1;
 }
-static int mock_fclose_noop_v(FILE *f) { (void)f; return 0; }
+static int mock_fclose_noop_v(FILE *f) {
+  (void)f;
+  return 0;
+}
 static FILE *mock_fopen_fail_v(const char *p, const char *m) {
-  (void)p; (void)m; errno = ENOENT; return NULL;
+  (void)p;
+  (void)m;
+  errno = ENOENT;
+  return NULL;
 }
 
 TEST(vncpasswd_reads_login_defs) {
@@ -360,7 +377,7 @@ TEST(vncpasswd_reads_yescrypt_cost) {
 
   /* Generate a salt and confirm it uses yescrypt format */
   char salt[SALT_BUF_SIZE];
-  ops.getrandom = NULL; /* use real getrandom */
+  ops.getrandom = NULL;        /* use real getrandom */
   ops.crypt_gensalt_ra = NULL; /* use real crypt_gensalt_ra */
   ops = syscall_ops_default;
   /* Re-apply fopen/fclose/fgets so they stay as default for salt gen */
@@ -378,9 +395,9 @@ TEST(vncpasswd_reads_yescrypt_cost) {
  */
 
 /*
- * fnal-vncpasswd rejects passwords longer than MAX_PASSWORD_LENGTH at set-time.
- * Test non-interactive mode (read_password_noninteractive) since we can feed
- * stdin via a pipe without opening a real terminal.
+ * fnal-vncpasswd rejects passwords longer than MAX_PASSWORD_LENGTH at
+ * set-time. Test non-interactive mode (read_password_noninteractive) since we
+ * can feed stdin via a pipe without opening a real terminal.
  */
 TEST(read_password_noninteractive_exact_max) {
   /* Exactly MAX_PASSWORD_LENGTH chars (e.g. "12345678") must succeed */
@@ -388,8 +405,9 @@ TEST(read_password_noninteractive_exact_max) {
   char input[64];
   snprintf(input, sizeof(input), "%0*d\n", MAX_PASSWORD_LENGTH, 0);
   /* Replace null bytes with '1' for a printable string of exact length */
-  char pwd[16] = { 0 };
-  for (int i = 0; i < MAX_PASSWORD_LENGTH; i++) pwd[i] = '1';
+  char pwd[16] = {0};
+  for (int i = 0; i < MAX_PASSWORD_LENGTH; i++)
+    pwd[i] = '1';
   pwd[MAX_PASSWORD_LENGTH] = '\n';
   pwd[MAX_PASSWORD_LENGTH + 1] = '\0';
 
@@ -439,7 +457,6 @@ TEST(read_password_noninteractive_too_short) {
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for too-short password");
 }
 
-
 TEST(read_password_noninteractive_too_long) {
   /*
    * A password longer than MAX_PASSWORD_LENGTH must be rejected.
@@ -447,8 +464,9 @@ TEST(read_password_noninteractive_too_long) {
    */
   char buf[HASH_BUF_SIZE];
   /* MAX_PASSWORD_LENGTH + 1 characters */
-  char pwd[32] = { 0 };
-  for (int i = 0; i <= MAX_PASSWORD_LENGTH; i++) pwd[i] = 'x';
+  char pwd[32] = {0};
+  for (int i = 0; i <= MAX_PASSWORD_LENGTH; i++)
+    pwd[i] = 'x';
   pwd[MAX_PASSWORD_LENGTH + 1] = '\n';
   pwd[MAX_PASSWORD_LENGTH + 2] = '\0';
 
@@ -484,15 +502,14 @@ TEST(full_password_set_and_verify) {
   struct syscall_ops ops = syscall_ops_default;
 
   /* Use yescrypt (RHEL default) */
-  struct encrypt_settings settings = { "YESCRYPT", 65536UL, 5UL };
+  struct encrypt_settings settings = {"YESCRYPT", 65536UL, 5UL};
 
   /* Hash the password */
   char hash[HASH_BUF_SIZE];
-  TEST_ASSERT_EQ(hash_password(&ops, "integrationtest", &settings,
-                               hash, sizeof(hash)), 0,
-                 "hash_password should succeed");
-  TEST_ASSERT_EQ(strncmp(hash, "$y$", 3), 0,
-                 "Should produce yescrypt hash");
+  TEST_ASSERT_EQ(
+      hash_password(&ops, "integrationtest", &settings, hash, sizeof(hash)), 0,
+      "hash_password should succeed");
+  TEST_ASSERT_EQ(strncmp(hash, "$y$", 3), 0, "Should produce yescrypt hash");
 
   /* Write to temp file atomically */
   char dest[] = "/tmp/test_integration_XXXXXX";
@@ -506,7 +523,8 @@ TEST(full_password_set_and_verify) {
   /* Verify file permissions */
   struct stat st;
   TEST_ASSERT_EQ(stat(dest, &st), 0, "File should exist");
-  TEST_ASSERT_EQ((long)(st.st_mode & 0777), (long)0600, "Permissions must be 0600");
+  TEST_ASSERT_EQ((long)(st.st_mode & 0777), (long)0600,
+                 "Permissions must be 0600");
 
   /* Store dest for mock open */
   snprintf(g_auth_file, sizeof(g_auth_file), "%s", dest);
@@ -516,15 +534,13 @@ TEST(full_password_set_and_verify) {
   ops.mlock = mock_mlock_ok;
   ops.munlock = mock_munlock_ok;
 
-  int rc = authenticate_vnc_user(&ops, "testuser", "integrationtest",
-                                  dest, false);
+  int rc =
+      authenticate_vnc_user(&ops, "testuser", "integrationtest", dest, false);
   TEST_ASSERT_EQ(rc, PAM_SUCCESS,
                  "Integration: correct password should authenticate");
 
-  rc = authenticate_vnc_user(&ops, "testuser", "wrongpassword",
-                              dest, false);
-  TEST_ASSERT_EQ(rc, PAM_AUTH_ERR,
-                 "Integration: wrong password should fail");
+  rc = authenticate_vnc_user(&ops, "testuser", "wrongpassword", dest, false);
+  TEST_ASSERT_EQ(rc, PAM_AUTH_ERR, "Integration: wrong password should fail");
 
   unlink(dest);
   explicit_bzero(hash, sizeof(hash));

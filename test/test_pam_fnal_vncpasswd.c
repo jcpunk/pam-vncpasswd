@@ -23,10 +23,6 @@
  * The resulting salt looks like "$y$j9T$<base64>$" (not "rounds=N$").
  */
 
-#include "autoconf.h"
-#include "pam_fnal_vncpasswd.h"
-#include "syscall_ops.h"
-
 #include <crypt.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -38,6 +34,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include "autoconf.h"
+#include "pam_fnal_vncpasswd.h"
+#include "syscall_ops.h"
 #include "test_framework.h"
 
 /*
@@ -45,11 +44,11 @@
  * These must match the integer values in <security/pam_modules.h>.
  */
 #ifndef PAM_SUCCESS
-#define PAM_SUCCESS          0
-#define PAM_AUTH_ERR         7
+#define PAM_SUCCESS 0
+#define PAM_AUTH_ERR 7
 #define PAM_AUTHINFO_UNAVAIL 9
-#define PAM_USER_UNKNOWN     10
-#define PAM_AUTHTOK_ERR      20
+#define PAM_USER_UNKNOWN 10
+#define PAM_AUTHTOK_ERR 20
 #endif
 
 /* ============================================================================
@@ -89,24 +88,31 @@ static char *mock_fgets(char *str, int n, FILE *stream) {
 }
 
 static FILE *mock_fopen_ok(const char *p, const char *m) {
-  (void)p; (void)m;
+  (void)p;
+  (void)m;
   return (FILE *)0x1;
 }
 static FILE *mock_fopen_fail(const char *p, const char *m) {
-  (void)p; (void)m;
+  (void)p;
+  (void)m;
   errno = ENOENT;
   return NULL;
 }
 static FILE *mock_fdopen_ok(int fd, const char *m) {
-  (void)fd; (void)m;
+  (void)fd;
+  (void)m;
   return (FILE *)0x1; /* non-NULL sentinel; mock_fgets ignores the stream */
 }
 static FILE *mock_fdopen_fail(int fd, const char *m) {
-  (void)fd; (void)m;
+  (void)fd;
+  (void)m;
   errno = ENOMEM;
   return NULL;
 }
-static int mock_fclose_noop(FILE *f) { (void)f; return 0; }
+static int mock_fclose_noop(FILE *f) {
+  (void)f;
+  return 0;
+}
 
 static ssize_t mock_getrandom_ok(void *buf, size_t len, unsigned int flags) {
   (void)flags;
@@ -114,25 +120,33 @@ static ssize_t mock_getrandom_ok(void *buf, size_t len, unsigned int flags) {
   return (ssize_t)len;
 }
 static ssize_t mock_getrandom_fail(void *buf, size_t len, unsigned int flags) {
-  (void)buf; (void)len; (void)flags;
+  (void)buf;
+  (void)len;
+  (void)flags;
   errno = EIO;
   return -1;
 }
 
 static char *mock_crypt_gensalt_ra_fail(const char *p, unsigned long c,
-                                         const char *r, int n) {
-  (void)p; (void)c; (void)r; (void)n;
+                                        const char *r, int n) {
+  (void)p;
+  (void)c;
+  (void)r;
+  (void)n;
   return NULL;
 }
 
 static char *mock_crypt_r_fail(const char *phrase, const char *setting,
                                struct crypt_data *data) {
-  (void)phrase; (void)setting; (void)data;
+  (void)phrase;
+  (void)setting;
+  (void)data;
   return NULL;
 }
 
 static int mock_open_fail(const char *p, int f, ...) {
-  (void)p; (void)f;
+  (void)p;
+  (void)f;
   errno = ENOENT;
   return -1;
 }
@@ -150,48 +164,58 @@ static int mock_fstat_ok(int fd, struct stat *st) {
   return 0;
 }
 static int mock_fstat_fail(int fd, struct stat *st) {
-  (void)fd; (void)st;
+  (void)fd;
+  (void)st;
   errno = EIO;
   return -1;
 }
 
 static int mock_mlock_ok(const void *a, size_t l) {
-  (void)a; (void)l;
+  (void)a;
+  (void)l;
   g_mock_mlock_called++;
   return 0;
 }
 static int mock_mlock_fail(const void *a, size_t l) {
-  (void)a; (void)l;
+  (void)a;
+  (void)l;
   g_mock_mlock_called++;
   errno = EPERM;
   return -1;
 }
 static int mock_munlock_ok(const void *a, size_t l) {
-  (void)a; (void)l;
+  (void)a;
+  (void)l;
   g_mock_munlock_called++;
   return 0;
 }
 
 static struct passwd g_mock_pw;
-static int mock_getpwnam_r_ok(const char *name, struct passwd *pw,
-                               char *buf, size_t buflen,
-                               struct passwd **result) {
-  (void)name; (void)buf; (void)buflen;
+static int mock_getpwnam_r_ok(const char *name, struct passwd *pw, char *buf,
+                              size_t buflen, struct passwd **result) {
+  (void)name;
+  (void)buf;
+  (void)buflen;
   *pw = g_mock_pw;
   *result = pw;
   return 0;
 }
-static int mock_getpwnam_r_fail(const char *name, struct passwd *pw,
-                                 char *buf, size_t buflen,
-                                 struct passwd **result) {
-  (void)name; (void)pw; (void)buf; (void)buflen;
+static int mock_getpwnam_r_fail(const char *name, struct passwd *pw, char *buf,
+                                size_t buflen, struct passwd **result) {
+  (void)name;
+  (void)pw;
+  (void)buf;
+  (void)buflen;
   *result = NULL;
   return ENOENT;
 }
 static int mock_getpwnam_r_notfound(const char *name, struct passwd *pw,
-                                     char *buf, size_t buflen,
-                                     struct passwd **result) {
-  (void)name; (void)pw; (void)buf; (void)buflen;
+                                    char *buf, size_t buflen,
+                                    struct passwd **result) {
+  (void)name;
+  (void)pw;
+  (void)buf;
+  (void)buflen;
   *result = NULL;
   return 0;
 }
@@ -222,7 +246,8 @@ static void make_yescrypt_hash(const char *password, char *hash_out,
   char rbytes[16];
   memset(rbytes, 0x77, sizeof(rbytes));
   char *salt = crypt_gensalt_ra("$y$", 5UL, rbytes, (int)sizeof(rbytes));
-  if (!salt) return;
+  if (!salt)
+    return;
   char *h = crypt_r(password, salt, &cd);
   if (h)
     snprintf(hash_out, hash_len, "%s", h);
@@ -407,9 +432,10 @@ TEST(get_sha_crypt_rounds) {
 TEST(generate_salt_sha512_prefix) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
-  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0, "Should succeed");
+  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0,
+                 "Should succeed");
   TEST_ASSERT_EQ(strncmp(salt, "$6$", 3), 0, "Should start with $6$");
   TEST_ASSERT_NOT_EQ(strstr(salt, "rounds=65536"), NULL,
                      "Should contain rounds=65536");
@@ -418,9 +444,10 @@ TEST(generate_salt_sha512_prefix) {
 TEST(generate_salt_sha256_prefix) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "SHA256", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA256", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
-  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0, "Should succeed");
+  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0,
+                 "Should succeed");
   TEST_ASSERT_EQ(strncmp(salt, "$5$", 3), 0, "Should start with $5$");
   TEST_ASSERT_NOT_EQ(strstr(salt, "rounds=65536"), NULL,
                      "Should contain rounds=65536");
@@ -433,9 +460,10 @@ TEST(generate_salt_sha256_prefix) {
 TEST(generate_salt_yescrypt_prefix) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "YESCRYPT", 65536UL, 5UL };
+  struct encrypt_settings s = {"YESCRYPT", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
-  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0, "Should succeed");
+  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0,
+                 "Should succeed");
   TEST_ASSERT_EQ(strncmp(salt, "$y$", 3), 0, "Should start with $y$");
   TEST_ASSERT_EQ(strstr(salt, "rounds="), NULL,
                  "yescrypt salt must not contain rounds= prefix");
@@ -446,10 +474,11 @@ TEST(generate_salt_yescrypt_cost_encoded) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
   char salt5[SALT_BUF_SIZE], salt11[SALT_BUF_SIZE];
-  struct encrypt_settings s5 = { "YESCRYPT", 65536UL, 5UL };
-  struct encrypt_settings s11 = { "YESCRYPT", 65536UL, 11UL };
+  struct encrypt_settings s5 = {"YESCRYPT", 65536UL, 5UL};
+  struct encrypt_settings s11 = {"YESCRYPT", 65536UL, 11UL};
   TEST_ASSERT_EQ(generate_salt(&ops, &s5, salt5, sizeof(salt5)), 0, "cost=5");
-  TEST_ASSERT_EQ(generate_salt(&ops, &s11, salt11, sizeof(salt11)), 0, "cost=11");
+  TEST_ASSERT_EQ(generate_salt(&ops, &s11, salt11, sizeof(salt11)), 0,
+                 "cost=11");
   TEST_ASSERT_EQ(strncmp(salt5, "$y$", 3), 0, "cost=5 starts with $y$");
   TEST_ASSERT_EQ(strncmp(salt11, "$y$", 3), 0, "cost=11 starts with $y$");
   TEST_ASSERT_STR_NOT_EQ(salt5, salt11, "Different costs must differ");
@@ -458,16 +487,17 @@ TEST(generate_salt_yescrypt_cost_encoded) {
 TEST(generate_salt_sufficient_length) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
-  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0, "Should succeed");
+  TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), 0,
+                 "Should succeed");
   TEST_ASSERT_NOT_EQ((long)strlen(salt), 0L, "Salt should not be empty");
 }
 
 TEST(generate_salt_getrandom_fails) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_fail;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
   TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), -1,
                  "Should fail when getrandom fails");
@@ -475,7 +505,7 @@ TEST(generate_salt_getrandom_fails) {
 
 TEST(generate_salt_null_buffer) {
   struct syscall_ops ops = syscall_ops_default;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   TEST_ASSERT_EQ(generate_salt(&ops, &s, NULL, SALT_BUF_SIZE), -1,
                  "NULL buffer should fail");
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL");
@@ -485,7 +515,7 @@ TEST(generate_salt_crypt_gensalt_ra_fails) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
   ops.crypt_gensalt_ra = mock_crypt_gensalt_ra_fail;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char salt[SALT_BUF_SIZE];
   TEST_ASSERT_EQ(generate_salt(&ops, &s, salt, sizeof(salt)), -1,
                  "Should fail when crypt_gensalt_ra fails");
@@ -499,7 +529,7 @@ TEST(generate_salt_crypt_gensalt_ra_fails) {
 TEST(hash_password_sha512) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "testpass", &s, hash, sizeof(hash)), 0,
                  "Should succeed");
@@ -509,7 +539,7 @@ TEST(hash_password_sha512) {
 TEST(hash_password_sha256) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "SHA256", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA256", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "testpass", &s, hash, sizeof(hash)), 0,
                  "Should succeed");
@@ -519,7 +549,7 @@ TEST(hash_password_sha256) {
 TEST(hash_password_yescrypt) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
-  struct encrypt_settings s = { "YESCRYPT", 65536UL, 5UL };
+  struct encrypt_settings s = {"YESCRYPT", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "testpass", &s, hash, sizeof(hash)), 0,
                  "yescrypt hash_password should succeed");
@@ -528,7 +558,7 @@ TEST(hash_password_yescrypt) {
 
 TEST(hash_password_null_password) {
   struct syscall_ops ops = syscall_ops_default;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, NULL, &s, hash, sizeof(hash)), -1,
                  "NULL password should fail");
@@ -537,7 +567,7 @@ TEST(hash_password_null_password) {
 
 TEST(hash_password_empty_password) {
   struct syscall_ops ops = syscall_ops_default;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "", &s, hash, sizeof(hash)), -1,
                  "Empty password should fail");
@@ -548,7 +578,7 @@ TEST(hash_password_crypt_r_fails) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_ok;
   ops.crypt_r = mock_crypt_r_fail;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "testpass", &s, hash, sizeof(hash)), -1,
                  "Should fail when crypt_r fails");
@@ -557,7 +587,7 @@ TEST(hash_password_crypt_r_fails) {
 TEST(hash_password_getrandom_fails) {
   struct syscall_ops ops = syscall_ops_default;
   ops.getrandom = mock_getrandom_fail;
-  struct encrypt_settings s = { "SHA512", 65536UL, 5UL };
+  struct encrypt_settings s = {"SHA512", 65536UL, 5UL};
   char hash[HASH_BUF_SIZE];
   TEST_ASSERT_EQ(hash_password(&ops, "testpass", &s, hash, sizeof(hash)), -1,
                  "Should fail when getrandom fails");
@@ -649,7 +679,8 @@ TEST(validate_passwd_file_good) {
   close(fd);
   int result = validate_passwd_file(&ops, tmpfile, getuid());
   TEST_ASSERT_NOT_EQ(result, -1, "Good file should validate");
-  if (result >= 0) close(result);
+  if (result >= 0)
+    close(result);
   unlink(tmpfile);
 }
 
@@ -747,7 +778,7 @@ TEST(read_passwd_hash_success) {
 
   struct syscall_ops ops = syscall_ops_default;
   ops.fdopen = mock_fdopen_ok;
-  ops.fgets  = mock_fgets;
+  ops.fgets = mock_fgets;
   ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
@@ -766,7 +797,7 @@ TEST(read_passwd_hash_with_newline) {
 
   struct syscall_ops ops = syscall_ops_default;
   ops.fdopen = mock_fdopen_ok;
-  ops.fgets  = mock_fgets;
+  ops.fgets = mock_fgets;
   ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
@@ -788,7 +819,7 @@ TEST(read_passwd_hash_empty_file) {
 
   struct syscall_ops ops = syscall_ops_default;
   ops.fdopen = mock_fdopen_ok;
-  ops.fgets  = mock_fgets;
+  ops.fgets = mock_fgets;
   ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
@@ -807,7 +838,7 @@ TEST(read_passwd_hash_read_fails) {
 
   struct syscall_ops ops = syscall_ops_default;
   ops.fdopen = mock_fdopen_ok;
-  ops.fgets  = mock_fgets;
+  ops.fgets = mock_fgets;
   ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
@@ -853,21 +884,21 @@ TEST(parse_args_no_args) {
 
 TEST(parse_args_file_override) {
   struct pam_args args;
-  const char *argv[] = { "file=/custom/path/fnal_vncpasswd" };
+  const char *argv[] = {"file=/custom/path/fnal_vncpasswd"};
   parse_pam_args(1, argv, &args);
   TEST_ASSERT_STR_EQ(args.file, "/custom/path/fnal_vncpasswd", "File override");
 }
 
 TEST(parse_args_nullok) {
   struct pam_args args;
-  const char *argv[] = { "nullok" };
+  const char *argv[] = {"nullok"};
   parse_pam_args(1, argv, &args);
   TEST_ASSERT_EQ((long)args.nullok, 1L, "nullok should be true");
 }
 
 TEST(parse_args_multiple) {
   struct pam_args args;
-  const char *argv[] = { "file=/some/path", "nullok" };
+  const char *argv[] = {"file=/some/path", "nullok"};
   parse_pam_args(2, argv, &args);
   TEST_ASSERT_STR_EQ(args.file, "/some/path", "File override set");
   TEST_ASSERT_EQ((long)args.nullok, 1L, "nullok should be true");
@@ -875,7 +906,7 @@ TEST(parse_args_multiple) {
 
 TEST(parse_args_unknown_arg) {
   struct pam_args args;
-  const char *argv[] = { "debug", "verbose", "nullok" };
+  const char *argv[] = {"debug", "verbose", "nullok"};
   parse_pam_args(3, argv, &args);
   TEST_ASSERT_EQ((long)args.nullok, 1L, "nullok should be true");
   TEST_ASSERT_EQ(args.file, NULL, "No file override");
@@ -900,7 +931,8 @@ static void setup_auth_hash_file(const char *hash) {
 static void cleanup_auth_hash_file(void) { unlink(g_auth_tmpfile); }
 
 static int mock_auth_open(const char *p, int f, ...) {
-  (void)p; (void)f;
+  (void)p;
+  (void)f;
   return open(g_auth_tmpfile, O_RDONLY);
 }
 
@@ -922,9 +954,9 @@ TEST(pam_auth_success) {
   ops.mlock = mock_mlock_ok;
   ops.munlock = mock_munlock_ok;
 
-  TEST_ASSERT_EQ(
-      authenticate_vnc_user(&ops, "testuser", "goodpass", g_auth_tmpfile, false),
-      PAM_SUCCESS, "Correct password should return PAM_SUCCESS");
+  TEST_ASSERT_EQ(authenticate_vnc_user(&ops, "testuser", "goodpass",
+                                       g_auth_tmpfile, false),
+                 PAM_SUCCESS, "Correct password should return PAM_SUCCESS");
   cleanup_auth_hash_file();
 }
 
@@ -986,9 +1018,8 @@ TEST(pam_auth_no_password_file_nullok) {
   ops.open = mock_open_fail;
   ops.mlock = mock_mlock_ok;
   ops.munlock = mock_munlock_ok;
-  TEST_ASSERT_EQ(
-      authenticate_vnc_user(&ops, "u", "pass", "/nonexistent", true),
-      PAM_SUCCESS, "Missing file with nullok → PAM_SUCCESS");
+  TEST_ASSERT_EQ(authenticate_vnc_user(&ops, "u", "pass", "/nonexistent", true),
+                 PAM_SUCCESS, "Missing file with nullok → PAM_SUCCESS");
 }
 
 TEST(pam_auth_null_user) {
@@ -1008,9 +1039,8 @@ TEST(pam_auth_user_not_in_passwd) {
   ops.getpwnam_r = mock_getpwnam_r_notfound;
   ops.mlock = mock_mlock_ok;
   ops.munlock = mock_munlock_ok;
-  TEST_ASSERT_EQ(
-      authenticate_vnc_user(&ops, "nosuchuser", "pass", NULL, false),
-      PAM_USER_UNKNOWN, "Unknown user → PAM_USER_UNKNOWN");
+  TEST_ASSERT_EQ(authenticate_vnc_user(&ops, "nosuchuser", "pass", NULL, false),
+                 PAM_USER_UNKNOWN, "Unknown user → PAM_USER_UNKNOWN");
 }
 
 TEST(pam_auth_file_argument) {
@@ -1085,21 +1115,40 @@ TEST(pam_return_codes_values) {
  */
 
 static int mock_lstat_noent(const char *p, struct stat *st) {
-  (void)p; (void)st; errno = ENOENT; return -1;
+  (void)p;
+  (void)st;
+  errno = ENOENT;
+  return -1;
 }
 static int mock_lstat_isdir(const char *p, struct stat *st) {
-  (void)p; memset(st, 0, sizeof(*st)); st->st_mode = S_IFDIR | 0700; return 0;
+  (void)p;
+  memset(st, 0, sizeof(*st));
+  st->st_mode = S_IFDIR | 0700;
+  return 0;
 }
 static int mock_lstat_isfile(const char *p, struct stat *st) {
-  (void)p; memset(st, 0, sizeof(*st)); st->st_mode = S_IFREG | 0600; return 0;
+  (void)p;
+  memset(st, 0, sizeof(*st));
+  st->st_mode = S_IFREG | 0600;
+  return 0;
 }
-static int mock_mkdir_ok(const char *p, mode_t m) { (void)p; (void)m; return 0; }
+static int mock_mkdir_ok(const char *p, mode_t m) {
+  (void)p;
+  (void)m;
+  return 0;
+}
 static int mock_mkdir_fail(const char *p, mode_t m) {
-  (void)p; (void)m; errno = EACCES; return -1;
+  (void)p;
+  (void)m;
+  errno = EACCES;
+  return -1;
 }
 /* Returns EEXIST — simulates a concurrent-create race with ensure_dir. */
 static int mock_mkdir_eexist(const char *p, mode_t m) {
-  (void)p; (void)m; errno = EEXIST; return -1;
+  (void)p;
+  (void)m;
+  errno = EEXIST;
+  return -1;
 }
 
 /*
@@ -1222,19 +1271,18 @@ TEST(pam_auth_file_override_non_regular) {
   setup_auth_hash_file(hash);
 
   struct syscall_ops ops = syscall_ops_default;
-  ops.open  = mock_auth_open;
+  ops.open = mock_auth_open;
   /* Report the fd as pointing to a non-regular file (block device) */
-  g_mock_fstat_uid  = getuid();
+  g_mock_fstat_uid = getuid();
   g_mock_fstat_mode = 0600;
   g_mock_fstat_type = 3; /* S_IFBLK — non-regular */
   ops.fstat = mock_fstat_ok;
-  ops.mlock   = mock_mlock_ok;
+  ops.mlock = mock_mlock_ok;
   ops.munlock = mock_munlock_ok;
 
   TEST_ASSERT_EQ(
       authenticate_vnc_user(&ops, "u", "goodpass", g_auth_tmpfile, false),
-      PAM_AUTH_ERR,
-      "Non-regular file-override must return PAM_AUTH_ERR");
+      PAM_AUTH_ERR, "Non-regular file-override must return PAM_AUTH_ERR");
   cleanup_auth_hash_file();
 }
 

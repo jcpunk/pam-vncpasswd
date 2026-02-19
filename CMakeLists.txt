@@ -105,11 +105,10 @@ if(NOT DEFINED DEFAULT_ENCRYPT_METHOD)
 endif()
 
 #
-# yescrypt cost factor (YESCRYPT_COST_FACTOR in login.defs)
-# Default is 5 per shadow-utils: N=2^(5+10)=32768, r=32, p=1
-# This is passed to crypt_gensalt_ra() as the count parameter.
-# NOTE: this is NOT the same as SHA_CRYPT_MAX_ROUNDS.
-# Do NOT set this to 65536 — that value is for SHA-crypt only.
+# yescrypt cost factor (YESCRYPT_COST_FACTOR in login.defs) Default is 5 per
+# shadow-utils: N=2^(5+10)=32768, r=32, p=1 This is passed to crypt_gensalt_ra()
+# as the count parameter. NOTE: this is NOT the same as SHA_CRYPT_MAX_ROUNDS. Do
+# NOT set this to 65536 — that value is for SHA-crypt only.
 #
 if(NOT DEFINED DEFAULT_YESCRYPT_COST)
   set(DEFAULT_YESCRYPT_COST

@@ -91,13 +91,14 @@ endmacro()
 if(BUILD_TESTING)
   add_unit_test(test_pam_fnal_vncpasswd)
 
-  # test_vncpasswd also needs vncpasswd.c (with VNCPASSWD_TESTING to suppress main())
-  # Link vncpasswd_core to pull in the shared core objects and their deps.
-  add_executable(test_vncpasswd
-                 ${CMAKE_SOURCE_DIR}/test/test_vncpasswd.c
-                 ${CMAKE_SOURCE_DIR}/src/vncpasswd.c)
+  # test_vncpasswd also needs vncpasswd.c (with VNCPASSWD_TESTING to suppress
+  # main()) Link vncpasswd_core to pull in the shared core objects and their
+  # deps.
+  add_executable(test_vncpasswd ${CMAKE_SOURCE_DIR}/test/test_vncpasswd.c
+                                ${CMAKE_SOURCE_DIR}/src/vncpasswd.c)
 
-  target_compile_definitions(test_vncpasswd PRIVATE _GNU_SOURCE VNCPASSWD_TESTING)
+  target_compile_definitions(test_vncpasswd PRIVATE _GNU_SOURCE
+                                                    VNCPASSWD_TESTING)
   target_compile_features(
     test_vncpasswd PRIVATE c_std_23 c_restrict c_function_prototypes
                            c_static_assert)
@@ -113,7 +114,9 @@ if(BUILD_TESTING)
   endif()
 
   list(APPEND UNIT_TEST_BINARIES test_vncpasswd)
-  set(UNIT_TEST_BINARIES "${UNIT_TEST_BINARIES}" CACHE INTERNAL "")
+  set(UNIT_TEST_BINARIES
+      "${UNIT_TEST_BINARIES}"
+      CACHE INTERNAL "")
   add_test(NAME test_vncpasswd COMMAND test_vncpasswd)
 
   add_custom_target(
@@ -169,8 +172,8 @@ if(BUILD_TESTING AND HAVE_COVERAGE_TOOLS)
       APPEND
       PROPERTY ADDITIONAL_CLEAN_FILES ${PROFILE_DATA})
 
-    # Extract first binary as the primary llvm-cov target; all others
-    # are passed as repeated -object flags (required by llvm-cov syntax).
+    # Extract first binary as the primary llvm-cov target; all others are passed
+    # as repeated -object flags (required by llvm-cov syntax).
     list(GET UNIT_TEST_BINARIES 0 _llvm_cov_first_bin)
     set(_llvm_cov_object_args "")
     list(LENGTH UNIT_TEST_BINARIES _llvm_cov_num_bins)
@@ -190,15 +193,17 @@ if(BUILD_TESTING AND HAVE_COVERAGE_TOOLS)
       # Note: sh -c with shell glob is intentional — this project is Linux-only
       # (PAM module), and cmake -E does not support file globbing.  Tests must
       # run before this step so at least one default-*.profraw file exists.
-      COMMAND sh -c "${LLVM_PROFDATA_EXEC} merge -sparse default-*.profraw -o ${PROFILE_DATA}"
+      COMMAND
+        sh -c
+        "${LLVM_PROFDATA_EXEC} merge -sparse default-*.profraw -o ${PROFILE_DATA}"
       COMMAND
         ${LLVM_COV_EXEC} show ${_llvm_cov_first_bin}
         -instr-profile=${PROFILE_DATA} -format=html
-        -output-dir=${COVERAGE_OUTPUT_DIR}
+        -output-dir=${COVERAGE_OUTPUT_DIR} ${_llvm_cov_object_args}
+      COMMAND
+        ${LLVM_COV_EXEC} report ${_llvm_cov_first_bin}
+        -instr-profile=${PROFILE_DATA} -show-region-summary=false
         ${_llvm_cov_object_args}
-      COMMAND ${LLVM_COV_EXEC} report ${_llvm_cov_first_bin}
-              -instr-profile=${PROFILE_DATA} -show-region-summary=false
-              ${_llvm_cov_object_args}
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       DEPENDS test_binaries
       COMMENT

@@ -18,16 +18,16 @@
 #define PAM_SM_ACCOUNT
 #define PAM_SM_SESSION
 #define PAM_SM_PASSWORD
-#include <syslog.h>
 #include <security/pam_ext.h>
 #include <security/pam_modules.h>
+#include <syslog.h>
 
 #include "autoconf.h"
 #include "pam_fnal_vncpasswd.h"
 #include "syscall_ops.h"
 
-PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags,
-                                   int argc, const char **argv) {
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
+                                   const char **argv) {
   const char *username = NULL;
   const char *authtok = NULL;
   struct pam_args args;
@@ -41,8 +41,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags,
     return PAM_AUTH_ERR;
   }
 
-  if (pam_get_authtok(pamh, PAM_AUTHTOK, &authtok, NULL) != PAM_SUCCESS
-      || !authtok) {
+  if (pam_get_authtok(pamh, PAM_AUTHTOK, &authtok, NULL) != PAM_SUCCESS ||
+      !authtok) {
     pam_syslog(pamh, LOG_ERR, "pam_fnal_vncpasswd: could not get password");
     return PAM_AUTH_ERR;
   }
@@ -51,33 +51,48 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags,
                                args.file, args.nullok);
 }
 
-PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags,
-                              int argc, const char **argv) {
-  (void)pamh; (void)flags; (void)argc; (void)argv;
+PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc,
+                              const char **argv) {
+  (void)pamh;
+  (void)flags;
+  (void)argc;
+  (void)argv;
   return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags,
-                                 int argc, const char **argv) {
-  (void)pamh; (void)flags; (void)argc; (void)argv;
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
+                                const char **argv) {
+  (void)pamh;
+  (void)flags;
+  (void)argc;
+  (void)argv;
   return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags,
-                                   int argc, const char **argv) {
-  (void)pamh; (void)flags; (void)argc; (void)argv;
+PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
+                                   const char **argv) {
+  (void)pamh;
+  (void)flags;
+  (void)argc;
+  (void)argv;
   return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags,
-                                    int argc, const char **argv) {
-  (void)pamh; (void)flags; (void)argc; (void)argv;
+PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
+                                    const char **argv) {
+  (void)pamh;
+  (void)flags;
+  (void)argc;
+  (void)argv;
   return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags,
-                                 int argc, const char **argv) {
-  (void)pamh; (void)flags; (void)argc; (void)argv;
+PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc,
+                                const char **argv) {
+  (void)pamh;
+  (void)flags;
+  (void)argc;
+  (void)argv;
   /* This module does not support password changes via PAM. */
   return PAM_PERM_DENIED;
 }
