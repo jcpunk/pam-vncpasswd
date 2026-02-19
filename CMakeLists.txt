@@ -79,7 +79,7 @@ endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 # Find our source code version string
 if(NOT DEFINED VERSION OR VERSION STREQUAL "")
   execute_process(
-    COMMAND git describe --abbrev=0
+    COMMAND git describe --tags --abbrev=0
     OUTPUT_VARIABLE VERSION
     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET
     RESULT_VARIABLE GIT_RESULT)

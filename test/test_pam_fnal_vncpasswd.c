@@ -97,6 +97,15 @@ static FILE *mock_fopen_fail(const char *p, const char *m) {
   errno = ENOENT;
   return NULL;
 }
+static FILE *mock_fdopen_ok(int fd, const char *m) {
+  (void)fd; (void)m;
+  return (FILE *)0x1; /* non-NULL sentinel; mock_fgets ignores the stream */
+}
+static FILE *mock_fdopen_fail(int fd, const char *m) {
+  (void)fd; (void)m;
+  errno = ENOMEM;
+  return NULL;
+}
 static int mock_fclose_noop(FILE *f) { (void)f; return 0; }
 static int mock_close_noop(int fd)   { (void)fd; return 0; }
 
@@ -751,29 +760,31 @@ TEST(validate_passwd_file_fstat_fails) {
 }
 
 /* ============================================================================
- * Tests: read_passwd_hash (via ops->read mock)
+ * Tests: read_passwd_hash (via ops->fdopen + ops->fgets mocks)
  *
- * These tests exercise read_passwd_hash() entirely through mock reads —
- * no real file on disk is required. This is the benefit of the ops->read
- * abstraction: callers can inject arbitrary content or error conditions
- * without filesystem side-effects.
+ * These tests exercise read_passwd_hash() entirely through mock fgets —
+ * no real file on disk is required. mock_fdopen_ok returns a non-NULL
+ * FILE* sentinel; mock_fgets ignores the stream argument and serves content
+ * from g_mock_fgets_content (set via setup_fgets_mock()). This is the same
+ * abstraction already used by the login.defs parser tests.
  * ============================================================================
  */
 
 TEST(read_passwd_hash_success) {
   /*
-   * Inject a known hash string followed by a newline.
+   * Inject a known hash string via setup_fgets_mock.
    * read_passwd_hash must strip the newline and return the hash unchanged.
    */
   const char known_hash[] = "$6$rounds=65536$testsalt$fakehashvalue";
-  setup_read_mock(known_hash); /* mock_read_data drips bytes then EOF */
+  setup_fgets_mock(known_hash);
 
   struct syscall_ops ops = syscall_ops_default;
-  ops.read  = mock_read_data;
-  ops.close = mock_close_noop; /* avoid closing an invalid fd */
+  ops.fdopen = mock_fdopen_ok;
+  ops.fgets  = mock_fgets;
+  ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
-  /* fd=42 is a non-negative sentinel ignored by the mock */
+  /* fd=42 is a non-negative sentinel ignored by mock_fdopen_ok */
   int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
   TEST_ASSERT_EQ(rc, 0, "read_passwd_hash should succeed");
   TEST_ASSERT_STR_EQ(buf, known_hash, "Hash content must match injected data");
@@ -784,12 +795,12 @@ TEST(read_passwd_hash_with_newline) {
    * Verify trailing newline is stripped from the stored hash.
    * The password file stores "<hash>\n"; read_passwd_hash returns only <hash>.
    */
-  const char hash_with_nl[] = "$6$rounds=65536$testsalt$fakehash\n";
-  setup_read_mock(hash_with_nl);
+  setup_fgets_mock("$6$rounds=65536$testsalt$fakehash\n");
 
   struct syscall_ops ops = syscall_ops_default;
-  ops.read  = mock_read_data;
-  ops.close = mock_close_noop;
+  ops.fdopen = mock_fdopen_ok;
+  ops.fgets  = mock_fgets;
+  ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
   int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
@@ -803,13 +814,15 @@ TEST(read_passwd_hash_with_newline) {
 
 TEST(read_passwd_hash_empty_file) {
   /*
-   * Empty file (read returns EOF immediately) — must fail with ENODATA.
+   * Empty file — fgets returns NULL immediately (EOF).
+   * Must fail with ENODATA.
    */
-  setup_read_mock(""); /* EOF on first call */
+  setup_fgets_mock(""); /* mock_fgets returns NULL for empty string */
 
   struct syscall_ops ops = syscall_ops_default;
-  ops.read  = mock_read_data;
-  ops.close = mock_close_noop;
+  ops.fdopen = mock_fdopen_ok;
+  ops.fgets  = mock_fgets;
+  ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
   int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
@@ -819,15 +832,20 @@ TEST(read_passwd_hash_empty_file) {
 
 TEST(read_passwd_hash_read_fails) {
   /*
-   * ops->read returns -1 (e.g. I/O error) — loop exits, pos==0, fail.
+   * fgets returns NULL (e.g. I/O error) — must fail with ENODATA.
+   * Uses the same empty-content path; from read_passwd_hash's perspective
+   * a NULL from fgets is treated uniformly as an unreadable file.
    */
+  setup_fgets_mock(""); /* NULL return from mock_fgets */
+
   struct syscall_ops ops = syscall_ops_default;
-  ops.read  = mock_read_fail;
-  ops.close = mock_close_noop;
+  ops.fdopen = mock_fdopen_ok;
+  ops.fgets  = mock_fgets;
+  ops.fclose = mock_fclose_noop;
 
   char buf[HASH_BUF_SIZE];
   int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
-  TEST_ASSERT_EQ(rc, -1, "read error should return -1");
+  TEST_ASSERT_EQ(rc, -1, "fgets error should return -1");
 }
 
 TEST(read_passwd_hash_null_ops) {

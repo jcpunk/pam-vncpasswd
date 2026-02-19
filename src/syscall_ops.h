@@ -60,6 +60,7 @@ struct syscall_ops {
   int (*fstat)(int fd, struct stat *statbuf);
   int (*lstat)(const char *pathname, struct stat *statbuf);
   FILE *(*fopen)(const char *pathname, const char *mode);
+  FILE *(*fdopen)(int fd, const char *mode);
   int (*fclose)(FILE *stream);
   char *(*fgets)(char *str, int n, FILE *stream);
 
@@ -80,8 +81,8 @@ struct syscall_ops {
    * Pattern: mkstemp → write → fchmod → fsync → rename.
    * Tests verify the sequence without touching the filesystem.
    *
-   * read is also abstracted so tests can inject hash content directly
-   * into read_passwd_hash() without needing a real file descriptor.
+   * read is abstracted for general testability of code paths that
+   * must read raw bytes from a validated file descriptor.
    */
   int (*mkstemp)(char *template);
   int (*fchmod)(int fd, mode_t mode);

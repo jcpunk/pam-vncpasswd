@@ -446,9 +446,8 @@ int validate_passwd_file(const struct syscall_ops *ops, const char *path,
 
 int read_passwd_hash(const struct syscall_ops *ops, int fd,
                      char *hash_buf, size_t hash_len) {
-  ssize_t nread = 0;
-  size_t pos = 0;
-  char c;
+  FILE *fp;
+  char *result;
   char *p;
 
   if (!ops || fd < 0 || !hash_buf || hash_len == 0) {
@@ -467,25 +466,44 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd,
     return -1;
   }
 
-  while (pos < hash_len - 1) {
-    nread = ops->read(fd, &c, 1);
-    if (nread <= 0)
-      break;
-    if (c == '\n')
-      break;
-    hash_buf[pos++] = c;
+  /*
+   * Wrap the security-validated fd in a buffered FILE* so we can use
+   * ops->fgets() — the same abstraction used to read /etc/login.defs.
+   * This is preferable to a single-byte ops->read() loop because:
+   *   - ops->fgets is already abstracted and exercised by login.defs tests
+   *   - Consistent with how the rest of the codebase reads text files
+   *   - Tests inject content via setup_fgets_mock() with no real fd needed
+   *
+   * OWNERSHIP: fdopen(3) takes ownership of fd. Do NOT call ops->close(fd)
+   * after a successful fdopen; ops->fclose() will close the underlying fd
+   * as part of stream teardown.
+   *
+   * On fdopen failure the C library does NOT close fd, so we must.
+   */
+  fp = ops->fdopen(fd, "r");
+  if (!fp) {
+    ops->close(fd);
+    return -1;
   }
-  hash_buf[pos] = '\0';
-  ops->close(fd);
 
-  if (pos == 0) {
+  /* Read the single line containing the stored hash */
+  result = ops->fgets(hash_buf, (int)hash_len, fp);
+  ops->fclose(fp); /* also closes the underlying fd */
+
+  if (!result) {
     errno = ENODATA;
     return -1;
   }
 
+  /* Strip trailing whitespace and newline */
   p = hash_buf + strlen(hash_buf) - 1;
   while (p >= hash_buf && (*p == '\r' || *p == '\n' || *p == ' '))
     *p-- = '\0';
+
+  if (*hash_buf == '\0') {
+    errno = ENODATA;
+    return -1;
+  }
 
   return 0;
 }

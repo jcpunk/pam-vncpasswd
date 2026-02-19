@@ -60,6 +60,7 @@ const struct syscall_ops syscall_ops_default = {
     .fstat = fstat,
     .lstat = lstat,
     .fopen = fopen,
+    .fdopen = fdopen,
     .fclose = fclose,
     .fgets = fgets,
 
