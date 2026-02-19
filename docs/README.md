@@ -11,8 +11,8 @@ accounts with no local password hash (`/etc/shadow` entry is `!` or `*`).
 
 This project provides:
 
-- **`pam_vncpasswd.so`** — a PAM module that authenticates against a
-  per-user VNC password file (`~/.vnc/passwd`)
+- **`pam_fnal_vncpasswd.so`** — a PAM module that authenticates against a
+  per-user VNC password file (`~/.config/vnc/fnal_vncpasswd`)
 - **`fnal-vncpasswd`** — a CLI tool for users to set their VNC-specific
   password
 
@@ -55,7 +55,7 @@ when changing the algorithm.
 
 ## Build
 
-Requirements: `cmake >= 3.11`, `gcc`, `libpam-devel`, `libxcrypt-devel`,
+Requirements: `cmake >= 3.21`, `gcc`, `libpam-devel`, `libxcrypt-devel`,
 `asciidoctor` (or `asciidoc`), optionally `lcov`.
 
 ```sh
@@ -75,10 +75,10 @@ ctest --output-on-failure
 | `DEFAULT_ENCRYPT_METHOD` | `SHA512` | Fallback if login.defs unset |
 | `DEFAULT_YESCRYPT_COST` | `5` | Fallback yescrypt cost factor |
 | `DEFAULT_SHA_CRYPT_ROUNDS` | `65536` | Fallback SHA-crypt rounds |
-| `VNC_PASSWD_DIR` | `.vnc` | Subdirectory under `$HOME` |
-| `VNC_PASSWD_FILE` | `passwd` | Password filename in `VNC_PASSWD_DIR` |
+| `VNC_PASSWD_DIR` | `.config/vnc` | Subdirectory under `$HOME` |
+| `VNC_PASSWD_FILE` | `fnal_vncpasswd` | Password filename in `VNC_PASSWD_DIR` |
 | `MIN_PASSWORD_LENGTH` | `8` | Minimum password length in fnal-vncpasswd |
-| `PAM_MODULE_DIR` | system default | Where to install `pam_vncpasswd.so` |
+| `PAM_MODULE_DIR` | system default | Where to install `pam_fnal_vncpasswd.so` |
 
 ## Usage
 
@@ -101,7 +101,7 @@ Add to `/etc/pam.d/vncserver-virtual` (or equivalent):
 
 ```
 auth    required  pam_sepermit.so
-auth    required  pam_vncpasswd.so
+auth    required  pam_fnal_vncpasswd.so
 account required  pam_unix.so
 session required  pam_unix.so
 ```
@@ -109,13 +109,13 @@ session required  pam_unix.so
 To allow access when no VNC password is set:
 
 ```
-auth    required  pam_vncpasswd.so nullok
+auth    required  pam_fnal_vncpasswd.so nullok
 ```
 
 To use a shared password file:
 
 ```
-auth    required  pam_vncpasswd.so file=/etc/vnc/shared.passwd
+auth    required  pam_fnal_vncpasswd.so file=/etc/vnc/shared.passwd
 ```
 
 ### Weston + NeatVNC Configuration

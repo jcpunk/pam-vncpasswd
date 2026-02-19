@@ -67,7 +67,7 @@ struct syscall_ops {
    * Directory operations
    *
    * WHY WE NEED THESE:
-   * Must create ~/.vnc/ directory if it doesn't exist.
+   * Must create ~/.config/vnc/ directory if it doesn't exist.
    * Tests verify directory creation without actually creating dirs.
    */
   int (*mkdir)(const char *pathname, mode_t mode);
@@ -90,7 +90,7 @@ struct syscall_ops {
    * User database operations
    *
    * WHY WE NEED THESE:
-   * Must look up the user's home directory to find ~/.vnc/passwd.
+   * Must look up the user's home directory to find ~/.config/vnc/fnal_vncpasswd.
    * Production reads from /etc/passwd + NSS. Tests provide controlled
    * user database without requiring actual system users.
    *

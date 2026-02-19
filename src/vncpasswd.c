@@ -1,14 +1,14 @@
 /**
  * vncpasswd.c - fnal-vncpasswd CLI tool
  *
- * Sets a per-user VNC password in ~/.vnc/passwd using crypt(3) hashing.
- * The password file is compatible with pam_vncpasswd.so authentication.
+ * Sets a per-user VNC password in ~/.config/vnc/fnal_vncpasswd using crypt(3) hashing.
+ * The password file is compatible with pam_fnal_vncpasswd.so authentication.
  *
  * USAGE:
  *   fnal-vncpasswd [-f file] [-n] [-h] [-v]
  *
  * OPTIONS:
- *   -f <file>   Write to a specific file instead of ~/.vnc/passwd
+ *   -f <file>   Write to a specific file instead of ~/.config/vnc/fnal_vncpasswd
  *   -n          Non-interactive: read password from stdin (no confirmation)
  *   -h          Show help
  *   -v          Show version
