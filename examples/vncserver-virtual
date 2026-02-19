@@ -17,10 +17,13 @@
 #
 # To allow VNC login before a VNC password has been set, add "nullok":
 #   auth    sufficient  pam_fnal_vncpasswd.so nullok
-# WARNING: with "nullok", users who have NOT yet run fnal-vncpasswd will be
-# able to authenticate via system password only.  If system auth also fails
-# (e.g. Kerberos-only account with no local hash), the user will be DENIED.
-# Do NOT use "nullok" if you want to enforce that all users set a VNC password.
+# WARNING: with "nullok", pam_fnal_vncpasswd returns PAM_SUCCESS immediately
+# when the VNC password file is absent, accepting any supplied credential
+# without verification.  In this "sufficient" stack that means any user who
+# has not yet run fnal-vncpasswd can authenticate without a valid password,
+# even if pam_unix.so already failed.
+# Omit "nullok" to require all users to set a VNC password before they can log
+# in via this stack.
 #
 # To use a shared / service-account password file, add "file=":
 #   auth    sufficient  pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd

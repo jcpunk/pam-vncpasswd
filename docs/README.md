@@ -111,7 +111,7 @@ PAM control flags determine how modules are combined:
 
 Add to `/etc/pam.d/vncserver-virtual` (or equivalent):
 
-```
+```conf
 # /etc/pam.d/vncserver-virtual
 auth    sufficient  pam_unix.so
 auth    sufficient  pam_fnal_vncpasswd.so
@@ -127,7 +127,7 @@ fail, `pam_deny.so` ensures the overall result is a denial.
 
 #### Allow VNC login before a VNC password has been set
 
-```
+```conf
 # /etc/pam.d/vncserver-virtual
 auth    sufficient  pam_unix.so
 auth    sufficient  pam_fnal_vncpasswd.so nullok
@@ -142,7 +142,7 @@ can still log in via their system password.
 
 #### Shared / service-account password file
 
-```
+```conf
 # /etc/pam.d/vncserver-virtual
 auth    sufficient  pam_unix.so
 auth    sufficient  pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
@@ -165,7 +165,7 @@ port=5900
 
 In `/etc/pam.d/weston-vnc` (or as configured by NeatVNC):
 
-```
+```conf
 # /etc/pam.d/weston-vnc
 auth    sufficient  pam_unix.so
 auth    sufficient  pam_fnal_vncpasswd.so

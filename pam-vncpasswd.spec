@@ -61,7 +61,7 @@ in /etc/login.defs (not SHA_CRYPT_MAX_ROUNDS, which is for SHA-crypt only).
 
 
 %changelog
-* Thu Feb 19 2026 Fermi Forward Discovery Group <fnal-systems@fnal.gov> - 0.1.0
+* Thu Feb 19 2026 Fermi Forward Discovery Group <fnal-systems@fnal.gov> - 0.1.0-1
 - Initial release
 - yescrypt support (default on RHEL10): uses YESCRYPT_COST_FACTOR from
   login.defs, not SHA_CRYPT_MAX_ROUNDS
