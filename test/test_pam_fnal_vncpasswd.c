@@ -98,6 +98,7 @@ static FILE *mock_fopen_fail(const char *p, const char *m) {
   return NULL;
 }
 static int mock_fclose_noop(FILE *f) { (void)f; return 0; }
+static int mock_close_noop(int fd)   { (void)fd; return 0; }
 
 static ssize_t mock_getrandom_ok(void *buf, size_t len, unsigned int flags) {
   (void)flags;
@@ -190,6 +191,38 @@ static int mock_getpwnam_r_notfound(const char *name, struct passwd *pw,
 static void setup_fgets_mock(const char *content) {
   g_mock_fgets_called = 0;
   snprintf(g_mock_fgets_content, sizeof(g_mock_fgets_content), "%s", content);
+}
+
+/*
+ * Mock read implementations.
+ *
+ * WHY THESE EXIST:
+ * read_passwd_hash() now calls ops->read() instead of the bare read(2) syscall.
+ * These mocks let tests exercise all code paths in read_passwd_hash() —
+ * including error and empty-file paths — without needing a real file on disk.
+ */
+static const char *g_mock_read_data;  /* string to drip out byte-by-byte */
+static size_t      g_mock_read_pos;   /* current position in g_mock_read_data */
+
+static void setup_read_mock(const char *data) {
+  g_mock_read_data = data;
+  g_mock_read_pos  = 0;
+}
+
+/* Drip one byte at a time from g_mock_read_data, then return EOF. */
+static ssize_t mock_read_data(int fd, void *buf, size_t count) {
+  (void)fd; (void)count;
+  if (!g_mock_read_data || g_mock_read_data[g_mock_read_pos] == '\0')
+    return 0; /* EOF */
+  *(char *)buf = g_mock_read_data[g_mock_read_pos++];
+  return 1;
+}
+
+/* Always fail. */
+static ssize_t mock_read_fail(int fd, void *buf, size_t count) {
+  (void)fd; (void)buf; (void)count;
+  errno = EIO;
+  return -1;
 }
 
 /* ============================================================================
@@ -718,6 +751,94 @@ TEST(validate_passwd_file_fstat_fails) {
 }
 
 /* ============================================================================
+ * Tests: read_passwd_hash (via ops->read mock)
+ *
+ * These tests exercise read_passwd_hash() entirely through mock reads —
+ * no real file on disk is required. This is the benefit of the ops->read
+ * abstraction: callers can inject arbitrary content or error conditions
+ * without filesystem side-effects.
+ * ============================================================================
+ */
+
+TEST(read_passwd_hash_success) {
+  /*
+   * Inject a known hash string followed by a newline.
+   * read_passwd_hash must strip the newline and return the hash unchanged.
+   */
+  const char known_hash[] = "$6$rounds=65536$testsalt$fakehashvalue";
+  setup_read_mock(known_hash); /* mock_read_data drips bytes then EOF */
+
+  struct syscall_ops ops = syscall_ops_default;
+  ops.read  = mock_read_data;
+  ops.close = mock_close_noop; /* avoid closing an invalid fd */
+
+  char buf[HASH_BUF_SIZE];
+  /* fd=42 is a non-negative sentinel ignored by the mock */
+  int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, 0, "read_passwd_hash should succeed");
+  TEST_ASSERT_STR_EQ(buf, known_hash, "Hash content must match injected data");
+}
+
+TEST(read_passwd_hash_with_newline) {
+  /*
+   * Verify trailing newline is stripped from the stored hash.
+   * The password file stores "<hash>\n"; read_passwd_hash returns only <hash>.
+   */
+  const char hash_with_nl[] = "$6$rounds=65536$testsalt$fakehash\n";
+  setup_read_mock(hash_with_nl);
+
+  struct syscall_ops ops = syscall_ops_default;
+  ops.read  = mock_read_data;
+  ops.close = mock_close_noop;
+
+  char buf[HASH_BUF_SIZE];
+  int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, 0, "read_passwd_hash should succeed");
+  /* Trailing newline must be stripped */
+  char *nl = strchr(buf, '\n');
+  TEST_ASSERT_EQ(nl, NULL, "Trailing newline must be stripped from hash");
+  TEST_ASSERT_STR_EQ(buf, "$6$rounds=65536$testsalt$fakehash",
+                     "Hash without newline should match");
+}
+
+TEST(read_passwd_hash_empty_file) {
+  /*
+   * Empty file (read returns EOF immediately) — must fail with ENODATA.
+   */
+  setup_read_mock(""); /* EOF on first call */
+
+  struct syscall_ops ops = syscall_ops_default;
+  ops.read  = mock_read_data;
+  ops.close = mock_close_noop;
+
+  char buf[HASH_BUF_SIZE];
+  int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, -1, "Empty file should return -1");
+  TEST_ASSERT_EQ(errno, ENODATA, "Empty file errno should be ENODATA");
+}
+
+TEST(read_passwd_hash_read_fails) {
+  /*
+   * ops->read returns -1 (e.g. I/O error) — loop exits, pos==0, fail.
+   */
+  struct syscall_ops ops = syscall_ops_default;
+  ops.read  = mock_read_fail;
+  ops.close = mock_close_noop;
+
+  char buf[HASH_BUF_SIZE];
+  int rc = read_passwd_hash(&ops, 42, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, -1, "read error should return -1");
+}
+
+TEST(read_passwd_hash_null_ops) {
+  char buf[HASH_BUF_SIZE];
+  errno = 0;
+  int rc = read_passwd_hash(NULL, -1, buf, sizeof(buf));
+  TEST_ASSERT_EQ(rc, -1, "NULL ops should return -1");
+  TEST_ASSERT_EQ(errno, EINVAL, "NULL ops should set errno to EINVAL");
+}
+
+/* ============================================================================
  * Tests: PAM Argument Parsing
  * ============================================================================
  */
@@ -1091,6 +1212,13 @@ int main(int argc, char **argv) {
   RUN_TEST(validate_passwd_file_not_regular);
   RUN_TEST(validate_passwd_file_open_fails);
   RUN_TEST(validate_passwd_file_fstat_fails);
+
+  /* read_passwd_hash — exercises ops->read mock */
+  RUN_TEST(read_passwd_hash_success);
+  RUN_TEST(read_passwd_hash_with_newline);
+  RUN_TEST(read_passwd_hash_empty_file);
+  RUN_TEST(read_passwd_hash_read_fails);
+  RUN_TEST(read_passwd_hash_null_ops);
 
   /* PAM argument parsing */
   RUN_TEST(parse_args_no_args);

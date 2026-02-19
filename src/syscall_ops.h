@@ -79,12 +79,16 @@ struct syscall_ops {
    * Password file must be written atomically to prevent partial writes.
    * Pattern: mkstemp → write → fchmod → fsync → rename.
    * Tests verify the sequence without touching the filesystem.
+   *
+   * read is also abstracted so tests can inject hash content directly
+   * into read_passwd_hash() without needing a real file descriptor.
    */
   int (*mkstemp)(char *template);
   int (*fchmod)(int fd, mode_t mode);
   int (*fsync)(int fd);
   int (*rename)(const char *oldpath, const char *newpath);
   int (*unlink)(const char *pathname);
+  ssize_t (*read)(int fd, void *buf, size_t count);
   ssize_t (*write)(int fd, const void *buf, size_t count);
 
   /*

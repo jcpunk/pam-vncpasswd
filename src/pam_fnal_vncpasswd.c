@@ -468,7 +468,7 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd,
   }
 
   while (pos < hash_len - 1) {
-    nread = read(fd, &c, 1);
+    nread = ops->read(fd, &c, 1);
     if (nread <= 0)
       break;
     if (c == '\n')

@@ -76,6 +76,7 @@ const struct syscall_ops syscall_ops_default = {
     .fsync = fsync,
     .rename = rename,
     .unlink = unlink,
+    .read = read,
     .write = write,
 
     /*
