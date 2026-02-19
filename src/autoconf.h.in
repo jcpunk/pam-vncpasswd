@@ -8,8 +8,8 @@
 #ifndef PAM_FNAL_VNCPASSWD_AUTOCONF_H
 #define PAM_FNAL_VNCPASSWD_AUTOCONF_H
 
-/* set program name */
-#define __PROGRAM_NAME "@PROJECT_NAME@"
+/* project/program name */
+#define PROJECT_NAME "@PROJECT_NAME@"
 
 /* Version information */
 #define VERSION "@VERSION@"

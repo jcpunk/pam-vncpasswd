@@ -18,6 +18,7 @@
 #define PAM_SM_ACCOUNT
 #define PAM_SM_SESSION
 #define PAM_SM_PASSWORD
+#include <syslog.h>
 #include <security/pam_ext.h>
 #include <security/pam_modules.h>
 

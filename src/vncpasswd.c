@@ -265,7 +265,7 @@ int main(int argc, char *argv[]) {
       usage(argv[0]);
       return EXIT_SUCCESS;
     case 'v':
-      printf("%s %s\n", __PROGRAM_NAME, VERSION);
+      printf("%s %s\n", PROJECT_NAME, VERSION);
       return EXIT_SUCCESS;
     default:
       usage(argv[0]);
