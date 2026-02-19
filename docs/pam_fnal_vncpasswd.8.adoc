@@ -11,7 +11,8 @@ pam_fnal_vncpasswd - PAM module for VNC password file authentication
 == Synopsis
 
 ----
-auth required pam_fnal_vncpasswd.so [file=PATH] [nullok]
+# Typical use: try system auth first, fall back to VNC password
+auth sufficient pam_fnal_vncpasswd.so [file=PATH] [nullok]
 ----
 
 == Description
@@ -105,27 +106,50 @@ PAM_USER_UNKNOWN::
 
 == Examples
 
-=== Basic configuration
+=== Either system password OR VNC password (most common)
+
+PAM processes `sufficient` modules in order.  The first one that
+succeeds grants authentication immediately.  The trailing `pam_deny.so`
+is a safety net: if every `sufficient` module above it fails, access is
+denied.
 
 ----
 # /etc/pam.d/vncserver
-auth    required    pam_fnal_vncpasswd.so
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so
 auth    required    pam_deny.so
-account required    pam_permit.so
-session required    pam_permit.so
+account required    pam_unix.so
+session required    pam_unix.so
 ----
+
+System authentication (`pam_unix.so`) is attempted first.  For
+Kerberos-only group accounts whose `/etc/shadow` entry is `!` or `*`,
+this fails, and `pam_fnal_vncpasswd` is tried next.
 
 === Allow login even without a VNC password set
 
+With *nullok*, a missing password file is treated as success so that
+users who have not yet run *fnal-vncpasswd*(1) can still authenticate
+via their system password.
+
 ----
+# /etc/pam.d/vncserver
+auth    sufficient  pam_unix.so
 auth    sufficient  pam_fnal_vncpasswd.so nullok
-auth    required    pam_unix.so
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ----
 
 === Custom password file location
 
 ----
-auth    required    pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
+# /etc/pam.d/vncserver
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ----
 
 == Files

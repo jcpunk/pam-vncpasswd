@@ -97,25 +97,58 @@ fnal-vncpasswd -f /etc/vnc/myaccount.passwd
 
 ### PAM Configuration
 
+PAM control flags determine how modules are combined:
+
+- `sufficient` — if this module succeeds (and no earlier `required` has
+  failed) authentication is immediately granted; if it fails, the next
+  module is tried.
+- `required` — the module must succeed; a failure is remembered but
+  processing continues to the end before the overall result is returned.
+- `pam_deny.so required` — used as a final safety net: if every
+  `sufficient` module above it has failed the stack ends in denial.
+
+#### Either system password OR VNC password (most common)
+
 Add to `/etc/pam.d/vncserver-virtual` (or equivalent):
 
 ```
-auth    required  pam_sepermit.so
-auth    required  pam_fnal_vncpasswd.so
-account required  pam_unix.so
-session required  pam_unix.so
+# /etc/pam.d/vncserver-virtual
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ```
 
-To allow access when no VNC password is set:
+System auth (`pam_unix.so`) is tried first.  If it succeeds, auth is
+granted immediately.  If it fails (e.g. Kerberos-only accounts with no
+local password hash), the VNC password file is tried next.  If both
+fail, `pam_deny.so` ensures the overall result is a denial.
+
+#### Allow VNC login before a VNC password has been set
 
 ```
-auth    required  pam_fnal_vncpasswd.so nullok
+# /etc/pam.d/vncserver-virtual
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so nullok
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ```
 
-To use a shared password file:
+With `nullok`, a missing VNC password file is treated as success by
+`pam_fnal_vncpasswd.so`, so users who have not yet run `fnal-vncpasswd`
+can still log in via their system password.
+
+#### Shared / service-account password file
 
 ```
-auth    required  pam_fnal_vncpasswd.so file=/etc/vnc/shared.passwd
+# /etc/pam.d/vncserver-virtual
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ```
 
 ### Weston + NeatVNC Configuration
@@ -133,9 +166,12 @@ port=5900
 In `/etc/pam.d/weston-vnc` (or as configured by NeatVNC):
 
 ```
-auth    required  pam_vncpasswd.so
-account required  pam_unix.so
-session required  pam_unix.so
+# /etc/pam.d/weston-vnc
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so
+auth    required    pam_deny.so
+account required    pam_unix.so
+session required    pam_unix.so
 ```
 
 ## RPM Build

@@ -6,7 +6,7 @@
 
 == Name
 
-fnal-vncpasswd - Set VNC password for pam_vncpasswd authentication
+fnal-vncpasswd - Set VNC password for pam_fnal_vncpasswd authentication
 
 == Synopsis
 
@@ -17,7 +17,7 @@ fnal-vncpasswd [-f FILE] [-n] [-h] [-v]
 == Description
 
 *fnal-vncpasswd* sets the per-user VNC password stored in
-`~/.vnc/passwd`.  This file is used by *pam_vncpasswd*(8) for
+`~/.config/vnc/fnal_vncpasswd`.  This file is used by *pam_fnal_vncpasswd*(8) for
 Weston + NeatVNC authentication on RHEL10 and similar systems.
 
 The password is hashed using crypt(3) with the algorithm specified by
@@ -34,7 +34,7 @@ standard crypt(3) implementation, including *openssl passwd* and Python's
 
 -f _FILE_::
   Write the password hash to _FILE_ instead of the default
-  `~/.vnc/passwd`.  The directory containing _FILE_ must exist.
+  `~/.config/vnc/fnal_vncpasswd`.  The directory containing _FILE_ must exist.
 
 -n::
   Non-interactive mode.  Read the password from standard input
@@ -86,11 +86,11 @@ Sensitive buffers (password, hash, salt) are cleared with
 
 == Files
 
-~/.vnc/::
+~/.config/vnc/::
   VNC configuration directory.  Created with mode 0700 if it does not
   exist.
 
-~/.vnc/passwd::
+~/.config/vnc/fnal_vncpasswd::
   VNC password file.  Contains a single crypt(3) hash.  Mode 0600.
 
 /etc/login.defs::
@@ -124,7 +124,7 @@ $ fnal-vncpasswd -f /etc/vnc/service-account.passwd
 
 == See Also
 
-*pam_vncpasswd*(8), *crypt*(3), *crypt_gensalt_ra*(3), *login.defs*(5)
+*pam_fnal_vncpasswd*(8), *crypt*(3), *crypt_gensalt_ra*(3), *login.defs*(5)
 
 == Authors
 

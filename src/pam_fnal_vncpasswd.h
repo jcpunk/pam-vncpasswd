@@ -16,7 +16,7 @@
  * By default: ~/.config/vnc/fnal_vncpasswd
  * Configured at build time via VNC_PASSWD_DIR and VNC_PASSWD_FILE.
  * Uses the XDG config directory convention (~/.config) rather than a
- * bare dotfile (~/.vnc) to follow modern filesystem standards.
+ * bare dotfile (~/.config/vnc) to follow modern filesystem standards.
  *
  * YESCRYPT SUPPORT:
  * yescrypt is the default ENCRYPT_METHOD on modern RHEL/Fedora.

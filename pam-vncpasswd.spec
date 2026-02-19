@@ -20,7 +20,7 @@ Requires:	libxcrypt
 Summary:	PAM module for VNC password file authentication
 %description
 pam-vncpasswd is a PAM module that authenticates users against a per-user
-VNC password file (~/.vnc/passwd) using proper crypt(3) hashing.
+VNC password file (~/.config/vnc/fnal_vncpasswd) using proper crypt(3) hashing.
 
 It is designed for environments where VNC servers (such as Weston + NeatVNC
 on RHEL10) need password authentication for users whose primary credentials
