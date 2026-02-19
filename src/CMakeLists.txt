@@ -1,57 +1,44 @@
 cmake_minimum_required(VERSION 3.21)
 
-# ##############################################################################
-# Load CMake provided modules
 include(GNUInstallDirs)
 
 # ##############################################################################
 # Generate autoconf.h from template
-configure_file("${CMAKE_CURRENT_SOURCE_DIR}/src/autoconf.h.in"
-               "${CMAKE_CURRENT_BINARY_DIR}/autoconf.h" @ONLY)
-
-# ##############################################################################
-# Source files shared between PAM module, CLI, and tests.
-# These files have NO PAM dependency and are compiled into test binaries.
-set(PAM_VNCPASSWD_LIB_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/pam_fnal_vncpasswd.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/syscall_ops_default.c)
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/autoconf.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/autoconf.h"
+  @ONLY)
 
 # ##############################################################################
 # Require PAM development headers.
 # PAM headers are expected to be present in production (pam-devel on RHEL/Fedora).
-# pam_entry.c (the PAM entry points) is compiled ONLY into pam_fnal_vncpasswd.so,
-# not into test binaries, so tests can run without linking against libpam.
-find_library(PAM_LIBRARY pam)
-find_path(PAM_INCLUDE_DIR security/pam_modules.h)
-
-if(NOT PAM_LIBRARY OR NOT PAM_INCLUDE_DIR)
-  message(
-    FATAL_ERROR
-      "PAM development headers not found (install pam-devel / libpam0g-dev).\n"
-      "PAM is required to build pam_fnal_vncpasswd.so.\n"
-      "If you only need tests, pass -DPAM_LIBRARY=/path/to/libpam.so "
-      "-DPAM_INCLUDE_DIR=/usr/include or install the pam-devel package.")
-endif()
-
+# pam_entry.c (the PAM entry points) is the ONLY consumer of pam_dep; the core
+# object library and the CLI deliberately exclude it so tests can run without
+# linking against libpam.
+find_library(PAM_LIBRARY     pam                    REQUIRED)
+find_path(   PAM_INCLUDE_DIR security/pam_modules.h REQUIRED)
 message(STATUS "PAM library: ${PAM_LIBRARY}")
 message(STATUS "PAM include: ${PAM_INCLUDE_DIR}")
+
+add_library(pam_dep INTERFACE)
+target_include_directories(pam_dep INTERFACE ${PAM_INCLUDE_DIR})
+target_link_libraries(     pam_dep INTERFACE ${PAM_LIBRARY})
 
 # ##############################################################################
 # Require libxcrypt (crypt_r(3) / crypt_gensalt_ra(3)).
 #
-# We use pkg_check_modules so the build explicitly depends on the libxcrypt
-# package — not glibc's legacy libcrypt — matching the RPM Requires/BuildRequires.
+# We use pkg_check_modules with IMPORTED_TARGET so downstream targets link
+# PkgConfig::LIBXCRYPT directly rather than carrying raw variable lists.
+# This also makes the build explicitly depend on the libxcrypt package —
+# not glibc's legacy libcrypt — matching the RPM Requires/BuildRequires.
 # crypt_gensalt_ra(3) is a libxcrypt extension not present in glibc crypt.
 # On RHEL/Fedora: install libxcrypt-devel.  On Debian/Ubuntu: libxcrypt-dev.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBXCRYPT REQUIRED libxcrypt)
-
-message(STATUS "libxcrypt version:      ${LIBXCRYPT_VERSION}")
-message(STATUS "libxcrypt libraries:    ${LIBXCRYPT_LIBRARIES}")
-message(STATUS "libxcrypt include dirs: ${LIBXCRYPT_INCLUDE_DIRS}")
+pkg_check_modules(LIBXCRYPT REQUIRED IMPORTED_TARGET libxcrypt)
+message(STATUS "libxcrypt version: ${LIBXCRYPT_VERSION}")
 
 # ##############################################################################
-# Optional: SELinux support via selinux_restorecon(3)
+# Optional: SELinux support via selinux_restorecon(3).
 #
 # WHY:
 # atomic_write_passwd() creates a temp file in the same directory as the
@@ -65,77 +52,58 @@ message(STATUS "libxcrypt include dirs: ${LIBXCRYPT_INCLUDE_DIRS}")
 # correct type transition). restorecon resets the label to whatever policy
 # says the file at that path should have.
 #
-# NOTE ON USERNAME SALTING:
-# The password hash does NOT incorporate the username. The random salt from
-# crypt_gensalt_ra(3) already guarantees uniqueness, and the file-ownership
-# check in validate_passwd_file() (st.st_uid == user's UID) defeats
-# hash-copying attacks without silently altering what the user typed.
+# All conditionality is encapsulated in selinux_dep: downstream targets link
+# it unconditionally and get the right behaviour on both SELinux and non-SELinux
+# systems (e.g. Debian) without any per-target ifdefs in this file.
+add_library(selinux_dep INTERFACE)
 find_library(SELINUX_LIBRARY selinux)
-find_path(SELINUX_INCLUDE_DIR selinux/selinux.h)
-
+find_path(   SELINUX_INCLUDE_DIR selinux/selinux.h)
 if(SELINUX_LIBRARY AND SELINUX_INCLUDE_DIR)
-  set(HAVE_SELINUX TRUE)
   message(STATUS "SELinux support enabled: ${SELINUX_LIBRARY}")
+  target_compile_definitions(selinux_dep INTERFACE HAVE_SELINUX)
+  target_include_directories(selinux_dep INTERFACE ${SELINUX_INCLUDE_DIR})
+  target_link_libraries(     selinux_dep INTERFACE ${SELINUX_LIBRARY})
 else()
-  set(HAVE_SELINUX FALSE)
   message(STATUS "libselinux not found — selinux_restorecon disabled")
 endif()
 
 # ##############################################################################
-# PAM module (shared library)
-# Compiles core logic + pam_entry.c (PAM entry points that need PAM headers)
-add_library(pam_fnal_vncpasswd MODULE
-            ${PAM_VNCPASSWD_LIB_SOURCES}
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/pam_entry.c)
+# Shared core (OBJECT library).
+#
+# These sources have NO PAM dependency and are compiled exactly once into an
+# OBJECT library consumed by both the PAM module and the CLI. Keeping them
+# separate also allows test binaries to link vncpasswd_core directly without
+# pulling in libpam.
+add_library(vncpasswd_core OBJECT
+  src/pam_fnal_vncpasswd.c
+  src/syscall_ops_default.c)
 
-target_compile_features(
-  pam_fnal_vncpasswd PRIVATE c_std_23 c_restrict c_function_prototypes
-                             c_static_assert)
+target_compile_features(vncpasswd_core PUBLIC
+  c_std_23 c_restrict c_function_prototypes c_static_assert)
+target_compile_definitions(vncpasswd_core PUBLIC _GNU_SOURCE)
+target_include_directories(vncpasswd_core PUBLIC
+  ${CMAKE_CURRENT_SOURCE_DIR}
+  ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(vncpasswd_core PUBLIC
+  PkgConfig::LIBXCRYPT
+  selinux_dep)
 
-target_compile_definitions(pam_fnal_vncpasswd PRIVATE _GNU_SOURCE)
-
-target_include_directories(
-  pam_fnal_vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-                             ${CMAKE_CURRENT_BINARY_DIR} ${PAM_INCLUDE_DIR}
-                             ${LIBXCRYPT_INCLUDE_DIRS})
-
-set(PAM_MODULE_LIBS ${LIBXCRYPT_LIBRARIES} ${PAM_LIBRARY})
-if(HAVE_SELINUX)
-  target_compile_definitions(pam_fnal_vncpasswd PRIVATE HAVE_SELINUX)
-  target_include_directories(pam_fnal_vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
-  list(APPEND PAM_MODULE_LIBS ${SELINUX_LIBRARY})
-endif()
-
-target_link_libraries(pam_fnal_vncpasswd PRIVATE ${PAM_MODULE_LIBS})
-
-# PAM modules must not have a "lib" prefix
+# ##############################################################################
+# PAM module (shared library).
+#
+# Compiles only pam_entry.c (the PAM entry points that require PAM headers)
+# and links vncpasswd_core for the remaining logic. PAM modules must not carry
+# a "lib" prefix — the set_target_properties call below enforces this.
+add_library(pam_fnal_vncpasswd MODULE src/pam_entry.c)
 set_target_properties(pam_fnal_vncpasswd PROPERTIES PREFIX "")
-
+target_link_libraries(pam_fnal_vncpasswd PRIVATE vncpasswd_core pam_dep)
 install(TARGETS pam_fnal_vncpasswd LIBRARY DESTINATION ${PAM_MODULE_DIR})
 
 # ##############################################################################
-# fnal-vncpasswd CLI tool
-add_executable(fnal-vncpasswd ${CMAKE_CURRENT_SOURCE_DIR}/src/vncpasswd.c
-                              ${PAM_VNCPASSWD_LIB_SOURCES})
-
-target_compile_features(
-  fnal-vncpasswd PRIVATE c_std_23 c_restrict c_function_prototypes
-                         c_static_assert)
-
-target_compile_definitions(fnal-vncpasswd PRIVATE _GNU_SOURCE)
-
-set(VNCPASSWD_LIBS ${LIBXCRYPT_LIBRARIES})
-if(HAVE_SELINUX)
-  target_compile_definitions(fnal-vncpasswd PRIVATE HAVE_SELINUX)
-  target_include_directories(fnal-vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
-  list(APPEND VNCPASSWD_LIBS ${SELINUX_LIBRARY})
-endif()
-
-target_include_directories(fnal-vncpasswd
-                           PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-                                   ${CMAKE_CURRENT_BINARY_DIR}
-                                   ${LIBXCRYPT_INCLUDE_DIRS})
-
-target_link_libraries(fnal-vncpasswd PRIVATE ${VNCPASSWD_LIBS})
-
+# fnal-vncpasswd CLI tool.
+#
+# Links vncpasswd_core only — no PAM dependency — so the binary can be
+# installed and tested independently of the PAM stack.
+add_executable(fnal-vncpasswd src/vncpasswd.c)
+target_link_libraries(fnal-vncpasswd PRIVATE vncpasswd_core)
 install(TARGETS fnal-vncpasswd RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
