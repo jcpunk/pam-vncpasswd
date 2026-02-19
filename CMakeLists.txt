@@ -198,6 +198,13 @@ include(src/CMakeLists.txt)
 include(test/CMakeLists.txt)
 
 # ##############################################################################
+# Install example PAM configuration files
+install(
+  FILES examples/vncserver-virtual
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/pam-vncpasswd/examples
+  COMPONENT examples)
+
+# ##############################################################################
 # Print out state summary
 message(STATUS "${CMAKE_PROJECT_NAME} - ${VERSION}")
 message(STATUS "Compile Time Configuration:")

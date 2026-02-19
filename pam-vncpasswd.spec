@@ -8,7 +8,7 @@ License:	BSD-3-Clause and CC-PDDC
 URL:		https://github.com/jcpunk/%{name}
 Source0:	%{url}/archive/refs/tags/%{version}.tar.gz
 
-BuildRequires:	cmake >= 3.11
+BuildRequires:	cmake >= 3.21
 BuildRequires:	coreutils git
 BuildRequires:	gcc lcov
 BuildRequires:	pam-devel
@@ -56,7 +56,8 @@ in /etc/login.defs (not SHA_CRYPT_MAX_ROUNDS, which is for SHA-crypt only).
 %attr(0755,root,root) %{_bindir}/fnal-vncpasswd
 %attr(0755,root,root) %{_libdir}/security/pam_fnal_vncpasswd.so
 %dir %{_datadir}/pam-vncpasswd
-%{_datadir}/pam-vncpasswd/
+%dir %{_datadir}/pam-vncpasswd/examples
+%{_datadir}/pam-vncpasswd/examples/vncserver-virtual
 
 
 %changelog

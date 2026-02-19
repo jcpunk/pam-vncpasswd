@@ -1,0 +1,33 @@
+# /etc/pam.d/vncserver-virtual  (example — copy to /etc/pam.d/ and adjust as needed)
+#
+# Authentication policy: succeed if EITHER the system password OR the VNC
+# password file matches.  The two "sufficient" lines implement OR logic:
+#
+#   - pam_unix.so     — standard system password (works for accounts with a
+#                        local password hash; will fail for Kerberos-only accounts
+#                        whose shadow entry is "!" or "*").
+#   - pam_fnal_vncpasswd.so — per-user VNC password file
+#                        (~/.config/vnc/fnal_vncpasswd, set with fnal-vncpasswd).
+#
+# A "sufficient" module that succeeds grants authentication immediately and
+# the rest of the stack is skipped.  A "sufficient" module that fails simply
+# moves on to the next module.  The trailing "pam_deny.so required" is a
+# safety net: if every sufficient module above it fails, the overall result
+# is a denial.
+#
+# To allow VNC login before a VNC password has been set, add "nullok":
+#   auth    sufficient  pam_fnal_vncpasswd.so nullok
+# WARNING: with "nullok", users who have NOT yet run fnal-vncpasswd will be
+# able to authenticate via system password only.  If system auth also fails
+# (e.g. Kerberos-only account with no local hash), the user will be DENIED.
+# Do NOT use "nullok" if you want to enforce that all users set a VNC password.
+#
+# To use a shared / service-account password file, add "file=":
+#   auth    sufficient  pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
+
+auth    sufficient  pam_unix.so
+auth    sufficient  pam_fnal_vncpasswd.so
+auth    required    pam_deny.so
+
+account required    pam_unix.so
+session required    pam_unix.so
