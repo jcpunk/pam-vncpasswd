@@ -11,8 +11,9 @@ if(ASCIIDOCTOR)
   message(STATUS "Using asciidoctor for manpage generation")
   add_custom_command(
     OUTPUT ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
-    COMMAND ${ASCIIDOCTOR} -b manpage -o ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
-            ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
+    COMMAND
+      ${ASCIIDOCTOR} -b manpage -o ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
+      ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
     DEPENDS ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
     COMMENT "Building pam_fnal_vncpasswd manpage with asciidoctor"
     VERBATIM)
@@ -44,7 +45,8 @@ elseif(ASCIIDOC AND A2X)
   add_custom_target(doc ALL DEPENDS ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
                                     ${PROJECT_BINARY_DIR}/fnal-vncpasswd.1)
 else()
-  message(STATUS "No asciidoctor or asciidoc/a2x found — skipping manpage build")
+  message(
+    STATUS "No asciidoctor or asciidoc/a2x found — skipping manpage build")
   add_custom_target(doc ALL COMMENT "No doc tool available; manpages not built")
 endif()
 
@@ -57,6 +59,7 @@ if(ASCIIDOCTOR OR (ASCIIDOC AND A2X))
 endif()
 
 # Install example PAM config
-install(FILES ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.conf.example
-        DESTINATION ${CMAKE_INSTALL_DATADIR}/pam-vncpasswd
-        OPTIONAL)
+install(
+  FILES ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.conf.example
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/pam-vncpasswd
+  OPTIONAL)

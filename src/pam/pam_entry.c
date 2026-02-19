@@ -1,17 +1,17 @@
 /**
  * pam_entry.c - PAM module entry points
  *
- * Thin wrappers around authenticate_vnc_user() that bridge the PAM API
- * to the core logic in pam_fnal_vncpasswd.c.
+ * Thin wrappers that bridge the PAM API to the core logic in auth.c.
  *
- * WHY SEPARATE FROM pam_fnal_vncpasswd.c:
- * The core authentication logic (pam_fnal_vncpasswd.c) has no PAM dependency,
- * making it fully testable via the syscall_ops mock pattern. This file
- * contains only the PAM glue: extract username/password from the PAM
- * handle and call authenticate_vnc_user().
+ * WHY SEPARATE FROM auth.c:
+ * auth.c has no PAM dependency, making it fully testable via the
+ * syscall_ops mock pattern.  This file contains only the PAM glue:
+ * extract username/password from the PAM handle and call
+ * authenticate_vnc_user().
  *
- * PAM headers are expected to be present in the build environment (RHEL10).
- * Tests do not compile this file; they test authenticate_vnc_user() directly.
+ * PAM headers are expected to be present in the build environment
+ * (pam-devel on RHEL/Fedora).  Tests do not compile this file; they
+ * call authenticate_vnc_user() directly.
  */
 
 #define PAM_SM_AUTH
@@ -22,8 +22,8 @@
 #include <security/pam_modules.h>
 #include <syslog.h>
 
+#include "auth.h"
 #include "autoconf.h"
-#include "pam_fnal_vncpasswd.h"
 #include "syscall_ops.h"
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,

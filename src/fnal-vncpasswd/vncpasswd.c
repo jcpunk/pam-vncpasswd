@@ -2,16 +2,16 @@
  * vncpasswd.c - fnal-vncpasswd CLI tool
  *
  * Sets a per-user VNC password in ~/.config/vnc/fnal_vncpasswd using crypt(3)
- * hashing. The password file is compatible with pam_fnal_vncpasswd.so
- * authentication.
+ * hashing.  The password file is compatible with pam_fnal_vncpasswd.so.
  *
  * USAGE:
  *   fnal-vncpasswd [-f file] [-n] [-h] [-v]
  *
  * OPTIONS:
- *   -f <file>   Write to a specific file instead of
- * ~/.config/vnc/fnal_vncpasswd -n          Non-interactive: read password from
- * stdin (no confirmation) -h          Show help -v          Show version
+ *   -f <file>   Write to a specific file instead of default
+ *   -n          Non-interactive: read password from stdin
+ *   -h          Show help
+ *   -v          Show version
  *
  * SECURITY:
  * - Reads ENCRYPT_METHOD and cost factors from /etc/login.defs
@@ -22,7 +22,6 @@
  * - explicit_bzero() all sensitive buffers before exit
  */
 
-#include <crypt.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pwd.h>
@@ -36,8 +35,9 @@
 #include <unistd.h>
 
 #include "autoconf.h"
-#include "pam_fnal_vncpasswd.h"
+#include "passwd.h"
 #include "syscall_ops.h"
+#include "vnc_path.h"
 
 /* ============================================================================
  * Password Reading
@@ -47,7 +47,7 @@
 /**
  * read_password_from_terminal - Read a password from the terminal
  * @prompt: Prompt string to display
- * @buf: Output buffer
+ * @buf:    Output buffer
  * @buflen: Size of output buffer
  *
  * Temporarily disables terminal echo (ECHO) so the password is not
@@ -102,18 +102,8 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
   return nread;
 }
 
-/**
- * read_password_interactive - Read password interactively with confirmation
- * @buf: Output buffer
- * @buflen: Size of output buffer
- *
- * Prompts twice; returns -1 if the two entries do not match or if either
- * is below the minimum length.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
 int read_password_interactive(char *buf, size_t buflen) {
-  char confirm[HASH_BUF_SIZE];
+  char confirm[VNC_HASH_BUF_SIZE];
   ssize_t n1, n2;
 
   if (!buf || buflen < 2) {
@@ -130,7 +120,7 @@ int read_password_interactive(char *buf, size_t buflen) {
   /*
    * Enforce VNC protocol maximum password length.
    * The RFB protocol VNC Authentication type limits passwords to
-   * MAX_PASSWORD_LENGTH (8) characters. Longer passwords would be
+   * MAX_PASSWORD_LENGTH (8) characters.  Longer passwords would be
    * silently truncated by VNC clients, creating a confusing mismatch
    * between what the user typed and what was actually authenticated.
    */
@@ -173,16 +163,6 @@ int read_password_interactive(char *buf, size_t buflen) {
   return 0;
 }
 
-/**
- * read_password_noninteractive - Read password from stdin (single line)
- * @buf: Output buffer
- * @buflen: Size of output buffer
- *
- * Reads one line from stdin, strips trailing newline.
- * Used with the -n flag for scripted operation.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
 int read_password_noninteractive(char *buf, size_t buflen) {
   ssize_t nread;
 
@@ -210,11 +190,6 @@ int read_password_noninteractive(char *buf, size_t buflen) {
     return -1;
   }
 
-  /*
-   * Enforce VNC protocol maximum password length.
-   * The RFB protocol VNC Authentication type limits passwords to
-   * MAX_PASSWORD_LENGTH (8) characters.
-   */
   if ((size_t)nread > (size_t)MAX_PASSWORD_LENGTH) {
     fprintf(stderr,
             "Password too long: the VNC protocol limits passwords to "
@@ -284,9 +259,10 @@ int main(int argc, char *argv[]) {
   }
 
   /* Determine the password file path */
-  char passwd_path[PAM_ARGS_FILE_MAX];
+  char passwd_path[VNC_PATH_MAX];
   if (file_override) {
-    if (snprintf(passwd_path, sizeof(passwd_path), "%s", file_override) < 0) {
+    if (build_vnc_passwd_path(NULL, file_override, passwd_path,
+                              sizeof(passwd_path)) < 0) {
       fprintf(stderr, "File path too long\n");
       return EXIT_FAILURE;
     }
@@ -302,9 +278,8 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    char vnc_dir[PAM_ARGS_FILE_MAX];
-    if (snprintf(vnc_dir, sizeof(vnc_dir), "%s/%s", pw.pw_dir, VNC_PASSWD_DIR) <
-        0) {
+    char vnc_dir[VNC_PATH_MAX];
+    if (build_vnc_dir_path(pw.pw_dir, vnc_dir, sizeof(vnc_dir)) < 0) {
       fprintf(stderr, "Home directory path too long\n");
       return EXIT_FAILURE;
     }
@@ -314,15 +289,15 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if (snprintf(passwd_path, sizeof(passwd_path), "%s/%s", vnc_dir,
-                 VNC_PASSWD_FILE) < 0) {
+    if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path,
+                              sizeof(passwd_path)) < 0) {
       fprintf(stderr, "Password path too long\n");
       return EXIT_FAILURE;
     }
   }
 
   /* Read the new password */
-  char password[HASH_BUF_SIZE];
+  char password[VNC_HASH_BUF_SIZE];
   int rc;
 
   if (noninteractive) {
@@ -337,7 +312,7 @@ int main(int argc, char *argv[]) {
   }
 
   /* Hash the password */
-  char hash[HASH_BUF_SIZE];
+  char hash[VNC_HASH_BUF_SIZE];
   if (hash_password(&syscall_ops_default, password, &settings, hash,
                     sizeof(hash)) < 0) {
     fprintf(stderr, "Failed to hash password: %s\n", strerror(errno));
