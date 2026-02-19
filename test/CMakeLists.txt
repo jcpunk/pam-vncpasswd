@@ -66,9 +66,9 @@ macro(add_unit_test TEST_NAME)
   target_include_directories(
     ${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
                          ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR}
-                         ${CRYPT_INCLUDE_DIR})
+                         ${LIBXCRYPT_INCLUDE_DIRS})
 
-  set(TEST_LIBS ${CRYPT_LIBRARY})
+  set(TEST_LIBS ${LIBXCRYPT_LIBRARIES})
   if(HAVE_SELINUX)
     target_compile_definitions(${TEST_NAME} PRIVATE HAVE_SELINUX)
     target_include_directories(${TEST_NAME} PRIVATE ${SELINUX_INCLUDE_DIR})
@@ -109,9 +109,9 @@ if(BUILD_TESTING)
   target_include_directories(
     test_vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
                            ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR}
-                           ${CRYPT_INCLUDE_DIR})
+                           ${LIBXCRYPT_INCLUDE_DIRS})
 
-  set(TEST_VNCPASSWD_LIBS ${CRYPT_LIBRARY})
+  set(TEST_VNCPASSWD_LIBS ${LIBXCRYPT_LIBRARIES})
   if(HAVE_SELINUX)
     target_compile_definitions(test_vncpasswd PRIVATE HAVE_SELINUX)
     target_include_directories(test_vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})

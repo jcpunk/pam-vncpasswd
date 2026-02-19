@@ -38,22 +38,17 @@ message(STATUS "PAM include: ${PAM_INCLUDE_DIR}")
 
 # ##############################################################################
 # Require libxcrypt (crypt_r(3) / crypt_gensalt_ra(3)).
-# libxcrypt is the modern provider of <crypt.h> on RHEL/Fedora (libxcrypt-devel)
-# and Debian/Ubuntu (libxcrypt-dev).  An explicit find_library() call is needed
-# so the linker uses the discovered path rather than relying on implicit "-lcrypt"
-# which can resolve to a wrong or missing library on non-standard installations.
-find_library(CRYPT_LIBRARY crypt)
-find_path(CRYPT_INCLUDE_DIR crypt.h)
+#
+# We use pkg_check_modules so the build explicitly depends on the libxcrypt
+# package — not glibc's legacy libcrypt — matching the RPM Requires/BuildRequires.
+# crypt_gensalt_ra(3) is a libxcrypt extension not present in glibc crypt.
+# On RHEL/Fedora: install libxcrypt-devel.  On Debian/Ubuntu: libxcrypt-dev.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBXCRYPT REQUIRED libxcrypt)
 
-if(NOT CRYPT_LIBRARY OR NOT CRYPT_INCLUDE_DIR)
-  message(
-    FATAL_ERROR
-      "libxcrypt development files not found (install libxcrypt-devel / libxcrypt-dev).\n"
-      "crypt_r(3) and crypt_gensalt_ra(3) are required to build this package.")
-endif()
-
-message(STATUS "crypt library: ${CRYPT_LIBRARY}")
-message(STATUS "crypt include: ${CRYPT_INCLUDE_DIR}")
+message(STATUS "libxcrypt version:      ${LIBXCRYPT_VERSION}")
+message(STATUS "libxcrypt libraries:    ${LIBXCRYPT_LIBRARIES}")
+message(STATUS "libxcrypt include dirs: ${LIBXCRYPT_INCLUDE_DIRS}")
 
 # ##############################################################################
 # Optional: SELinux support via selinux_restorecon(3)
@@ -102,9 +97,9 @@ target_compile_definitions(pam_fnal_vncpasswd PRIVATE _GNU_SOURCE)
 target_include_directories(
   pam_fnal_vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                              ${CMAKE_CURRENT_BINARY_DIR} ${PAM_INCLUDE_DIR}
-                             ${CRYPT_INCLUDE_DIR})
+                             ${LIBXCRYPT_INCLUDE_DIRS})
 
-set(PAM_MODULE_LIBS ${CRYPT_LIBRARY} ${PAM_LIBRARY})
+set(PAM_MODULE_LIBS ${LIBXCRYPT_LIBRARIES} ${PAM_LIBRARY})
 if(HAVE_SELINUX)
   target_compile_definitions(pam_fnal_vncpasswd PRIVATE HAVE_SELINUX)
   target_include_directories(pam_fnal_vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
@@ -129,7 +124,7 @@ target_compile_features(
 
 target_compile_definitions(fnal-vncpasswd PRIVATE _GNU_SOURCE)
 
-set(VNCPASSWD_LIBS ${CRYPT_LIBRARY})
+set(VNCPASSWD_LIBS ${LIBXCRYPT_LIBRARIES})
 if(HAVE_SELINUX)
   target_compile_definitions(fnal-vncpasswd PRIVATE HAVE_SELINUX)
   target_include_directories(fnal-vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
@@ -139,7 +134,7 @@ endif()
 target_include_directories(fnal-vncpasswd
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
                                    ${CMAKE_CURRENT_BINARY_DIR}
-                                   ${CRYPT_INCLUDE_DIR})
+                                   ${LIBXCRYPT_INCLUDE_DIRS})
 
 target_link_libraries(fnal-vncpasswd PRIVATE ${VNCPASSWD_LIBS})
 
