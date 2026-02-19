@@ -58,6 +58,7 @@
 static ssize_t read_password_from_terminal(const char *prompt,
                                            char *buf, size_t buflen) {
   struct termios old_term, new_term;
+  bool saved_term = false;
   int ttyfd;
   ssize_t nread = -1;
 
@@ -68,6 +69,7 @@ static ssize_t read_password_from_terminal(const char *prompt,
   }
 
   if (tcgetattr(ttyfd, &old_term) == 0) {
+    saved_term = true;
     new_term = old_term;
     new_term.c_lflag &= ~(tcflag_t)ECHO;
     new_term.c_lflag |= (tcflag_t)ECHONL;
@@ -89,10 +91,12 @@ static ssize_t read_password_from_terminal(const char *prompt,
   }
 
   if (ttyfd != STDIN_FILENO) {
-    tcsetattr(ttyfd, TCSAFLUSH, &old_term);
+    if (saved_term)
+      tcsetattr(ttyfd, TCSAFLUSH, &old_term);
     close(ttyfd);
   } else {
-    tcsetattr(ttyfd, TCSAFLUSH, &old_term);
+    if (saved_term)
+      tcsetattr(ttyfd, TCSAFLUSH, &old_term);
   }
 
   return nread;
@@ -198,7 +202,10 @@ int read_password_noninteractive(char *buf, size_t buflen) {
     nread--;
   buf[nread] = '\0';
 
-  if (nread == 0) {
+  if ((size_t)nread < (size_t)MIN_PASSWORD_LENGTH) {
+    fprintf(stderr, "Password too short (minimum %d characters).\n",
+            MIN_PASSWORD_LENGTH);
+    explicit_bzero(buf, buflen);
     errno = EINVAL;
     return -1;
   }

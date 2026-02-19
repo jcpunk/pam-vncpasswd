@@ -412,6 +412,34 @@ TEST(read_password_noninteractive_exact_max) {
                  "Buffer should hold MAX_PASSWORD_LENGTH chars");
 }
 
+TEST(read_password_noninteractive_too_short) {
+  /*
+   * A zero-length password (just a newline) must be rejected with EINVAL
+   * after the trailing newline is stripped.  This exercises the
+   * MIN_PASSWORD_LENGTH check added to read_password_noninteractive.
+   */
+  char buf[HASH_BUF_SIZE];
+  const char *empty = "\n";
+
+  int pipefd[2];
+  TEST_ASSERT_EQ(pipe(pipefd), 0, "pipe should succeed");
+  write(pipefd[1], empty, strlen(empty));
+  close(pipefd[1]);
+
+  int saved_stdin = dup(STDIN_FILENO);
+  dup2(pipefd[0], STDIN_FILENO);
+  close(pipefd[0]);
+
+  int rc = read_password_noninteractive(buf, sizeof(buf));
+
+  dup2(saved_stdin, STDIN_FILENO);
+  close(saved_stdin);
+
+  TEST_ASSERT_EQ(rc, -1, "Empty password must be rejected");
+  TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for too-short password");
+}
+
+
 TEST(read_password_noninteractive_too_long) {
   /*
    * A password longer than MAX_PASSWORD_LENGTH must be rejected.
@@ -508,7 +536,7 @@ TEST(full_password_set_and_verify) {
  */
 
 int main(int argc, char **argv) {
-  TEST_INIT(30, false, false);
+  TEST_INIT(31, false, false);
 
   /* Directory creation */
   RUN_TEST(ensure_dir_creates_new);
@@ -531,6 +559,7 @@ int main(int argc, char **argv) {
 
   /* Password length enforcement (VNC protocol max = MAX_PASSWORD_LENGTH) */
   RUN_TEST(read_password_noninteractive_exact_max);
+  RUN_TEST(read_password_noninteractive_too_short);
   RUN_TEST(read_password_noninteractive_too_long);
 
   /* Integration */
