@@ -1,0 +1,147 @@
+= pam_fnal_vncpasswd(8)
+:doctype: manpage
+:manmanual: System Security Services
+:mansource: pam-vncpasswd
+:man-linkstyle: pass:[blue R < >]
+
+== Name
+
+pam_fnal_vncpasswd - PAM module for VNC password file authentication
+
+== Synopsis
+
+----
+auth required pam_fnal_vncpasswd.so [file=PATH] [nullok]
+----
+
+== Description
+
+*pam_fnal_vncpasswd* authenticates users against a per-user VNC-specific
+password file.  The password file stores a single crypt(3) hash (SHA-512,
+yescrypt, or another method configured in *login.defs*(5)).
+
+The default password file location is *~/.config/vnc/fnal_vncpasswd*.
+This follows the XDG configuration directory convention.  The password is
+set using *fnal-vncpasswd*(1).
+
+This module is designed for environments where normal system authentication
+is not available for VNC sessions — for example, group accounts that
+authenticate via Kerberos (no local password) but need a separate VNC
+password for Weston + NeatVNC sessions on RHEL 10.
+
+=== Password file format
+
+The file contains a single crypt(3) hash string, for example:
+
+ $y$j9T$saltbytes$hashbytes    (yescrypt, RHEL 10 default)
+ $6$rounds=65536$salt$hash     (SHA-512)
+ $5$rounds=65536$salt$hash     (SHA-256)
+
+The file must:
+
+* be owned by the authenticating user
+* have permissions 0600 or stricter (no group or world read/write)
+* be a regular file (not a symlink)
+
+=== Security design
+
+* *O_NOFOLLOW* is used when opening the password file to prevent symlink
+  attacks (TOCTOU protection).
+* After open, *fstat*(2) verifies ownership and permissions.
+* Password comparison uses a constant-time XOR accumulator to prevent
+  timing side-channel leakage.
+* The plaintext password is locked in RAM with *mlock*(2) to prevent it
+  being swapped to disk.
+* All sensitive buffers are cleared with *explicit_bzero*(3) before returning.
+
+=== Password length
+
+The VNC protocol (RFB) limits VNC Authentication passwords to 8 characters.
+*fnal-vncpasswd*(1) enforces this limit at password-set time.
+
+The PAM module does *not* enforce a length limit.  A password longer than
+8 characters is treated the same as any other wrong password — crypt(3)
+produces a hash that does not match the stored value, and the module returns
+*PAM_AUTH_ERR*.  This is intentional: the module should not leak information
+about *why* authentication failed.
+
+=== Yescrypt support
+
+yescrypt is the default *ENCRYPT_METHOD* on RHEL 10 and modern Fedora.
+Unlike SHA-crypt methods, yescrypt's cost is encoded by *crypt_gensalt_ra*(3)
+as a parameter string (e.g. _j9T_ for cost factor 5) rather than a
+`rounds=N` prefix.  The *YESCRYPT_COST_FACTOR* directive in *login.defs*(5)
+controls the cost; the default is 5.
+
+== Module types provided
+
+*auth*, *account*, *session*, *password*
+
+== Return values
+
+PAM_SUCCESS::
+    Authentication succeeded.
+
+PAM_AUTH_ERR::
+    Password is wrong, file has incorrect permissions, or another
+    authentication error occurred.
+
+PAM_AUTHINFO_UNAVAIL::
+    Password file does not exist and *nullok* was not specified.
+
+PAM_USER_UNKNOWN::
+    The user does not exist in the system password database.
+
+== Options
+
+*file=*_PATH_::
+    Use _PATH_ as the password file instead of the default
+    (~/.config/vnc/fnal_vncpasswd).  Useful for testing or non-standard
+    configurations.
+
+*nullok*::
+    If the password file does not exist, return *PAM_SUCCESS* instead of
+    *PAM_AUTHINFO_UNAVAIL*.  Allows VNC login before a VNC password is set.
+
+== Examples
+
+=== Basic configuration
+
+----
+# /etc/pam.d/vncserver
+auth    required    pam_fnal_vncpasswd.so
+auth    required    pam_deny.so
+account required    pam_permit.so
+session required    pam_permit.so
+----
+
+=== Allow login even without a VNC password set
+
+----
+auth    sufficient  pam_fnal_vncpasswd.so nullok
+auth    required    pam_unix.so
+----
+
+=== Custom password file location
+
+----
+auth    required    pam_fnal_vncpasswd.so file=/etc/vnc/shared_passwd
+----
+
+== Files
+
+*~/.config/vnc/fnal_vncpasswd*::
+    Default per-user VNC password file.
+
+*/etc/login.defs*::
+    Read for *ENCRYPT_METHOD*, *YESCRYPT_COST_FACTOR*, and
+    *SHA_CRYPT_MAX_ROUNDS*.
+
+== See also
+
+*fnal-vncpasswd*(1), *crypt*(3), *crypt_gensalt_ra*(3), *login.defs*(5),
+*pam*(8), *pam.conf*(5)
+
+== Authors
+
+Fermi National Accelerator Laboratory

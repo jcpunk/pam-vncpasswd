@@ -36,7 +36,7 @@
 #include <unistd.h>
 
 #include "autoconf.h"
-#include "pam_vncpasswd.h"
+#include "pam_fnal_vncpasswd.h"
 #include "syscall_ops.h"
 
 /* ============================================================================
@@ -123,8 +123,25 @@ int read_password_interactive(char *buf, size_t buflen) {
     return -1;
   }
 
+  /*
+   * Enforce VNC protocol maximum password length.
+   * The RFB protocol VNC Authentication type limits passwords to
+   * MAX_PASSWORD_LENGTH (8) characters. Longer passwords would be
+   * silently truncated by VNC clients, creating a confusing mismatch
+   * between what the user typed and what was actually authenticated.
+   */
+  if ((size_t)n1 > (size_t)MAX_PASSWORD_LENGTH) {
+    fprintf(stderr,
+            "Password too long: the VNC protocol limits passwords to "
+            "%d characters.\n",
+            MAX_PASSWORD_LENGTH);
+    explicit_bzero(buf, buflen);
+    errno = EINVAL;
+    return -1;
+  }
+
   if ((size_t)n1 < (size_t)MIN_PASSWORD_LENGTH) {
-    fprintf(stderr, "Password too short (minimum %d characters)\n",
+    fprintf(stderr, "Password too short (minimum %d characters).\n",
             MIN_PASSWORD_LENGTH);
     explicit_bzero(buf, buflen);
     errno = EINVAL;
@@ -141,7 +158,7 @@ int read_password_interactive(char *buf, size_t buflen) {
   }
 
   if (n1 != n2 || memcmp(buf, confirm, (size_t)n1) != 0) {
-    fprintf(stderr, "Passwords do not match\n");
+    fprintf(stderr, "Passwords do not match.\n");
     explicit_bzero(buf, buflen);
     explicit_bzero(confirm, sizeof(confirm));
     errno = EINVAL;
@@ -186,6 +203,21 @@ int read_password_noninteractive(char *buf, size_t buflen) {
     return -1;
   }
 
+  /*
+   * Enforce VNC protocol maximum password length.
+   * The RFB protocol VNC Authentication type limits passwords to
+   * MAX_PASSWORD_LENGTH (8) characters.
+   */
+  if ((size_t)nread > (size_t)MAX_PASSWORD_LENGTH) {
+    fprintf(stderr,
+            "Password too long: the VNC protocol limits passwords to "
+            "%d characters.\n",
+            MAX_PASSWORD_LENGTH);
+    explicit_bzero(buf, buflen);
+    errno = EINVAL;
+    return -1;
+  }
+
   return 0;
 }
 
@@ -194,14 +226,15 @@ int read_password_noninteractive(char *buf, size_t buflen) {
  * ============================================================================
  */
 
+#ifndef VNCPASSWD_TESTING
 static void usage(const char *prog) {
   fprintf(stderr,
           "Usage: %s [OPTIONS]\n"
           "\n"
-          "Set the VNC password for use with pam_vncpasswd.so\n"
+          "Set the VNC password for use with pam_fnal_vncpasswd.so\n"
           "\n"
           "Options:\n"
-          "  -f <file>  Write to a specific file (default: ~/.vnc/passwd)\n"
+          "  -f <file>  Write to a specific file (default: ~/.config/vnc/fnal_vncpasswd)\n"
           "  -n         Non-interactive: read password from stdin\n"
           "  -h         Show this help\n"
           "  -v         Show version\n",
@@ -269,7 +302,7 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
 
-    if (ensure_vnc_dir(&syscall_ops_default, vnc_dir) < 0) {
+    if (ensure_dir(&syscall_ops_default, vnc_dir) < 0) {
       fprintf(stderr, "Cannot create %s: %s\n", vnc_dir, strerror(errno));
       return EXIT_FAILURE;
     }
@@ -319,3 +352,4 @@ int main(int argc, char *argv[]) {
   printf("VNC password updated successfully.\n");
   return EXIT_SUCCESS;
 }
+#endif /* VNCPASSWD_TESTING */

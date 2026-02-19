@@ -1,18 +1,42 @@
 /**
  * test_vncpasswd.c - Tests for fnal-vncpasswd CLI tool functions
  *
- * Tests the functions in vncpasswd.c and pam_vncpasswd.c that are used
- * by the CLI tool: ensure_vnc_dir(), atomic_write_passwd(), and the
- * shared hash_password()/verify_password() functions.
+ * Tests the functions in vncpasswd.c and pam_fnal_vncpasswd.c used by the
+ * CLI tool: ensure_dir(), atomic_write_passwd(), hash_password(),
+ * verify_password().
  *
- * Integration test: hash a password with yescrypt (RHEL default), write it
- * to a temp file, and verify it using authenticate_vnc_user().
+ * PASSWORD FILE LOCATION:
+ * Default path is ~/.config/vnc/fnal_vncpasswd (XDG convention).
+ * The directory is created with ensure_dir() which handles multi-segment
+ * paths (e.g. ".config/vnc") by creating each component in turn.
+ *
+ * ATOMIC WRITE / SELINUX:
+ * atomic_write_passwd() creates a temp file at path.XXXXXX (same directory
+ * as destination) then rename(2)s it into place.  Because the temp file and
+ * destination share the same parent directory they inherit the same SELinux
+ * label.  rename(2) never changes labels; selinux_restorecon(3) is called
+ * afterwards (when HAVE_SELINUX) to handle the edge case where the parent
+ * directory itself has the wrong context.
+ *
+ * PASSWORD LENGTH:
+ * fnal-vncpasswd rejects passwords longer than MAX_PASSWORD_LENGTH (8) at
+ * set-time with a clear VNC-protocol explanation.  The PAM module never
+ * checks length — a too-long password simply fails to match the stored hash
+ * and returns PAM_AUTH_ERR.
+ *
+ * USERNAME NOT MIXED INTO HASH:
+ * The random salt from crypt_gensalt_ra(3) already makes every hash unique.
+ * The file-ownership check in validate_passwd_file() defeats hash-copying
+ * attacks.  Silently mixing the username into the password would deviate
+ * from crypt(3) convention and add implementation complexity for no
+ * meaningful gain.
+ *
+ * Integration test: hash with yescrypt (RHEL default), write, verify via
+ * authenticate_vnc_user().
  */
 
-#define _GNU_SOURCE
-
 #include "autoconf.h"
-#include "pam_vncpasswd.h"
+#include "pam_fnal_vncpasswd.h"
 #include "syscall_ops.h"
 
 #include <crypt.h>
@@ -41,11 +65,6 @@
  * ============================================================================
  */
 
-static int g_mock_mkdir_fail;
-static int g_mock_mkstemp_fail;
-static int g_mock_fchmod_fail;
-static int g_mock_fsync_fail;
-static int g_mock_rename_fail;
 static char g_mock_tmpfile_path[256];
 
 static int mock_mkdir_ok(const char *p, mode_t m) {
@@ -76,16 +95,9 @@ static int mock_lstat_isfile(const char *p, struct stat *st) {
   st->st_mode = S_IFREG | 0600;
   return 0;
 }
-static int mock_lstat_badperms(const char *p, struct stat *st) {
-  (void)p;
-  memset(st, 0, sizeof(*st));
-  st->st_mode = S_IFDIR | 0777;
-  return 0;
-}
 
 /* mkstemp: creates a real temp file so we can test writes */
 static int mock_mkstemp_ok(char *tmpl) {
-  /* Use real mkstemp */
   int fd = mkstemp(tmpl);
   if (fd >= 0)
     snprintf(g_mock_tmpfile_path, sizeof(g_mock_tmpfile_path), "%s", tmpl);
@@ -94,12 +106,6 @@ static int mock_mkstemp_ok(char *tmpl) {
 static int mock_mkstemp_fail(char *tmpl) {
   (void)tmpl;
   errno = EACCES;
-  return -1;
-}
-
-static int mock_fchmod_fail(int fd, mode_t m) {
-  (void)fd; (void)m;
-  errno = EPERM;
   return -1;
 }
 
@@ -126,50 +132,50 @@ static int mock_mlock_ok(const void *a, size_t l) { (void)a; (void)l; return 0; 
 static int mock_munlock_ok(const void *a, size_t l) { (void)a; (void)l; return 0; }
 
 /* ============================================================================
- * Tests: Directory Creation (ensure_vnc_dir)
+ * Tests: Directory Creation (ensure_dir)
  * ============================================================================
  */
 
-TEST(ensure_vnc_dir_creates_new) {
+TEST(ensure_dir_creates_new) {
   struct syscall_ops ops = syscall_ops_default;
   ops.lstat = mock_lstat_noent;
   ops.mkdir = mock_mkdir_ok;
-  TEST_ASSERT_EQ(ensure_vnc_dir(&ops, "/tmp/fakenewdir"), 0,
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/fakenewdir"), 0,
                  "Should create new directory");
 }
 
-TEST(ensure_vnc_dir_already_exists) {
+TEST(ensure_dir_already_exists) {
   struct syscall_ops ops = syscall_ops_default;
   ops.lstat = mock_lstat_isdir;
   /* mkdir should not be called */
   ops.mkdir = mock_mkdir_fail;
-  TEST_ASSERT_EQ(ensure_vnc_dir(&ops, "/tmp/existingdir"), 0,
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/existingdir"), 0,
                  "Existing directory should succeed");
 }
 
-TEST(ensure_vnc_dir_mkdir_fails) {
+TEST(ensure_dir_mkdir_fails) {
   struct syscall_ops ops = syscall_ops_default;
   ops.lstat = mock_lstat_noent;
   ops.mkdir = mock_mkdir_fail;
-  TEST_ASSERT_EQ(ensure_vnc_dir(&ops, "/tmp/faildir"), -1,
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/faildir"), -1,
                  "Should fail when mkdir fails");
 }
 
-TEST(ensure_vnc_dir_wrong_permissions) {
+TEST(ensure_dir_wrong_permissions) {
   /*
    * If the directory exists but is not a directory (e.g., it's a file),
    * ensure_vnc_dir should return -1 with ENOTDIR.
    */
   struct syscall_ops ops = syscall_ops_default;
   ops.lstat = mock_lstat_isfile;
-  TEST_ASSERT_EQ(ensure_vnc_dir(&ops, "/tmp/notadir"), -1,
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/notadir"), -1,
                  "Non-directory path should fail");
   TEST_ASSERT_EQ(errno, ENOTDIR, "Should set ENOTDIR");
 }
 
-TEST(ensure_vnc_dir_null_path) {
+TEST(ensure_dir_null_path) {
   struct syscall_ops ops = syscall_ops_default;
-  TEST_ASSERT_EQ(ensure_vnc_dir(&ops, NULL), -1,
+  TEST_ASSERT_EQ(ensure_dir(&ops, NULL), -1,
                  "NULL path should fail");
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL");
 }
@@ -367,6 +373,76 @@ TEST(vncpasswd_reads_yescrypt_cost) {
 }
 
 /* ============================================================================
+ * Tests: Password length enforcement in fnal-vncpasswd
+ * ============================================================================
+ */
+
+/*
+ * fnal-vncpasswd rejects passwords longer than MAX_PASSWORD_LENGTH at set-time.
+ * Test non-interactive mode (read_password_noninteractive) since we can feed
+ * stdin via a pipe without opening a real terminal.
+ */
+TEST(read_password_noninteractive_exact_max) {
+  /* Exactly MAX_PASSWORD_LENGTH chars (e.g. "12345678") must succeed */
+  char buf[HASH_BUF_SIZE];
+  char input[64];
+  snprintf(input, sizeof(input), "%0*d\n", MAX_PASSWORD_LENGTH, 0);
+  /* Replace null bytes with '1' for a printable string of exact length */
+  char pwd[16] = { 0 };
+  for (int i = 0; i < MAX_PASSWORD_LENGTH; i++) pwd[i] = '1';
+  pwd[MAX_PASSWORD_LENGTH] = '\n';
+  pwd[MAX_PASSWORD_LENGTH + 1] = '\0';
+
+  int pipefd[2];
+  TEST_ASSERT_EQ(pipe(pipefd), 0, "pipe should succeed");
+  write(pipefd[1], pwd, strlen(pwd));
+  close(pipefd[1]);
+
+  int saved_stdin = dup(STDIN_FILENO);
+  dup2(pipefd[0], STDIN_FILENO);
+  close(pipefd[0]);
+
+  int rc = read_password_noninteractive(buf, sizeof(buf));
+
+  dup2(saved_stdin, STDIN_FILENO);
+  close(saved_stdin);
+
+  TEST_ASSERT_EQ(rc, 0, "Exactly MAX_PASSWORD_LENGTH chars should succeed");
+  TEST_ASSERT_EQ((long)strlen(buf), (long)MAX_PASSWORD_LENGTH,
+                 "Buffer should hold MAX_PASSWORD_LENGTH chars");
+}
+
+TEST(read_password_noninteractive_too_long) {
+  /*
+   * A password longer than MAX_PASSWORD_LENGTH must be rejected.
+   * The error message must mention the VNC protocol limit.
+   */
+  char buf[HASH_BUF_SIZE];
+  /* MAX_PASSWORD_LENGTH + 1 characters */
+  char pwd[32] = { 0 };
+  for (int i = 0; i <= MAX_PASSWORD_LENGTH; i++) pwd[i] = 'x';
+  pwd[MAX_PASSWORD_LENGTH + 1] = '\n';
+  pwd[MAX_PASSWORD_LENGTH + 2] = '\0';
+
+  int pipefd[2];
+  TEST_ASSERT_EQ(pipe(pipefd), 0, "pipe should succeed");
+  write(pipefd[1], pwd, strlen(pwd));
+  close(pipefd[1]);
+
+  int saved_stdin = dup(STDIN_FILENO);
+  dup2(pipefd[0], STDIN_FILENO);
+  close(pipefd[0]);
+
+  int rc = read_password_noninteractive(buf, sizeof(buf));
+
+  dup2(saved_stdin, STDIN_FILENO);
+  close(saved_stdin);
+
+  TEST_ASSERT_EQ(rc, -1, "Password longer than MAX_PASSWORD_LENGTH must fail");
+  TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL");
+}
+
+/* ============================================================================
  * Tests: Integration — set password via tool, verify via PAM
  * ============================================================================
  */
@@ -435,11 +511,11 @@ int main(int argc, char **argv) {
   TEST_INIT(30, false, false);
 
   /* Directory creation */
-  RUN_TEST(ensure_vnc_dir_creates_new);
-  RUN_TEST(ensure_vnc_dir_already_exists);
-  RUN_TEST(ensure_vnc_dir_mkdir_fails);
-  RUN_TEST(ensure_vnc_dir_wrong_permissions);
-  RUN_TEST(ensure_vnc_dir_null_path);
+  RUN_TEST(ensure_dir_creates_new);
+  RUN_TEST(ensure_dir_already_exists);
+  RUN_TEST(ensure_dir_mkdir_fails);
+  RUN_TEST(ensure_dir_wrong_permissions);
+  RUN_TEST(ensure_dir_null_path);
 
   /* Atomic file write */
   RUN_TEST(atomic_write_success);
@@ -452,6 +528,10 @@ int main(int argc, char **argv) {
   RUN_TEST(vncpasswd_reads_login_defs);
   RUN_TEST(vncpasswd_falls_back_sha512);
   RUN_TEST(vncpasswd_reads_yescrypt_cost);
+
+  /* Password length enforcement (VNC protocol max = MAX_PASSWORD_LENGTH) */
+  RUN_TEST(read_password_noninteractive_exact_max);
+  RUN_TEST(read_password_noninteractive_too_long);
 
   /* Integration */
   RUN_TEST(full_password_set_and_verify);

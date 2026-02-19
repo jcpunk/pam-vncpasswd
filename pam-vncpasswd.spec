@@ -30,7 +30,7 @@ The module supports yescrypt (the default on modern RHEL/Fedora), SHA-512,
 SHA-256, and bcrypt, reading the algorithm and cost parameters from
 /etc/login.defs at runtime.
 
-Unlike TigerVNC's built-in password handling, pam_vncpasswd uses proper
+Unlike TigerVNC's built-in password handling, pam_fnal_vncpasswd uses proper
 crypt(3) hashing. For yescrypt, the cost is controlled by YESCRYPT_COST_FACTOR
 in /etc/login.defs (not SHA_CRYPT_MAX_ROUNDS, which is for SHA-crypt only).
 
@@ -54,7 +54,7 @@ in /etc/login.defs (not SHA_CRYPT_MAX_ROUNDS, which is for SHA-crypt only).
 %license LICENSE
 %doc %{_mandir}
 %attr(0755,root,root) %{_bindir}/fnal-vncpasswd
-%attr(0755,root,root) %{_libdir}/security/pam_vncpasswd.so
+%attr(0755,root,root) %{_libdir}/security/pam_fnal_vncpasswd.so
 %dir %{_datadir}/pam-vncpasswd
 %{_datadir}/pam-vncpasswd/
 

@@ -125,19 +125,26 @@ endif()
 
 if(NOT DEFINED VNC_PASSWD_DIR)
   set(VNC_PASSWD_DIR
-      ".vnc"
-      CACHE STRING "VNC password subdirectory under user home")
+      ".config/vnc"
+      CACHE STRING "VNC password subdirectory under user home (XDG convention)")
 endif()
 
 if(NOT DEFINED VNC_PASSWD_FILE)
   set(VNC_PASSWD_FILE
-      "passwd"
+      "fnal_vncpasswd"
       CACHE STRING "VNC password filename within VNC_PASSWD_DIR")
+endif()
+
+if(NOT DEFINED MAX_PASSWORD_LENGTH)
+  set(MAX_PASSWORD_LENGTH
+      8
+      CACHE STRING
+            "Maximum password length (VNC RFB protocol limit is 8 characters)")
 endif()
 
 if(NOT DEFINED MIN_PASSWORD_LENGTH)
   set(MIN_PASSWORD_LENGTH
-      8
+      1
       CACHE STRING "Minimum password length enforced by fnal-vncpasswd")
 endif()
 
@@ -177,6 +184,13 @@ if(NOT MIN_PASSWORD_LENGTH MATCHES "^[0-9]+$")
   )
 endif()
 
+if(NOT MAX_PASSWORD_LENGTH MATCHES "^[0-9]+$")
+  message(
+    FATAL_ERROR
+      "MAX_PASSWORD_LENGTH must be a non-negative integer (got: '${MAX_PASSWORD_LENGTH}')"
+  )
+endif()
+
 # ##############################################################################
 # task focused cmake
 include(docs/CMakeLists.txt)
@@ -193,5 +207,6 @@ message(STATUS "  DEFAULT_YESCRYPT_COST     = ${DEFAULT_YESCRYPT_COST}")
 message(STATUS "  DEFAULT_SHA_CRYPT_ROUNDS  = ${DEFAULT_SHA_CRYPT_ROUNDS}")
 message(STATUS "  VNC_PASSWD_DIR            = ${VNC_PASSWD_DIR}")
 message(STATUS "  VNC_PASSWD_FILE           = ${VNC_PASSWD_FILE}")
+message(STATUS "  MAX_PASSWORD_LENGTH       = ${MAX_PASSWORD_LENGTH}")
 message(STATUS "  MIN_PASSWORD_LENGTH       = ${MIN_PASSWORD_LENGTH}")
 message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")

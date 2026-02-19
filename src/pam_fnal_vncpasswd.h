@@ -1,16 +1,22 @@
 /**
- * pam_vncpasswd.h - Shared declarations for pam_vncpasswd
+ * pam_fnal_vncpasswd.h - Shared declarations for pam_fnal_vncpasswd
  *
  * This header declares the core functions shared between:
- * - pam_vncpasswd.c  (PAM module implementation)
- * - vncpasswd.c      (fnal-vncpasswd CLI tool)
- * - test/            (unit tests)
+ * - pam_fnal_vncpasswd.c  (PAM module implementation)
+ * - vncpasswd.c           (fnal-vncpasswd CLI tool)
+ * - test/                 (unit tests)
  *
  * DESIGN NOTE:
  * Core functions do NOT depend on PAM headers. The PAM entry points
- * (pam_sm_authenticate, etc.) are thin wrappers in pam_vncpasswd.c
- * that extract username/password from the PAM handle and pass them to
+ * (pam_sm_authenticate, etc.) are thin wrappers in pam_entry.c that
+ * extract username/password from the PAM handle and pass them to
  * authenticate_vnc_user(), which is fully testable without PAM.
+ *
+ * PASSWORD FILE LOCATION:
+ * By default: ~/.config/vnc/fnal_vncpasswd
+ * Configured at build time via VNC_PASSWD_DIR and VNC_PASSWD_FILE.
+ * Uses the XDG config directory convention (~/.config) rather than a
+ * bare dotfile (~/.vnc) to follow modern filesystem standards.
  *
  * YESCRYPT SUPPORT:
  * yescrypt is the default ENCRYPT_METHOD on modern RHEL/Fedora.
@@ -25,8 +31,8 @@
  * which handles the algorithm-specific encoding automatically.
  */
 
-#ifndef PAM_VNCPASSWD_H
-#define PAM_VNCPASSWD_H
+#ifndef PAM_FNAL_VNCPASSWD_H
+#define PAM_FNAL_VNCPASSWD_H
 
 #include <crypt.h>
 #include <stdbool.h>
@@ -42,9 +48,6 @@
 
 /**
  * ENCRYPT_METHOD_MAX - Maximum length of an encrypt method string
- *
- * Longest expected value is "YESCRYPT" or "SHA512" (8 chars), but we
- * allocate generously to handle unknown future methods.
  */
 enum { ENCRYPT_METHOD_MAX = 64 };
 
@@ -99,8 +102,6 @@ struct encrypt_settings {
 
 /**
  * struct pam_args - Parsed PAM module arguments
- *
- * Extracted from the argc/argv passed to pam_sm_authenticate.
  */
 struct pam_args {
   const char *file; /* 'file=/path' override, or NULL for default */
@@ -118,14 +119,11 @@ struct pam_args {
  * @login_defs_path: Path to login.defs (typically "/etc/login.defs")
  * @settings: Output: populated with method and cost parameters
  *
- * Parses ENCRYPT_METHOD, YESCRYPT_COST_FACTOR, and SHA_CRYPT_MAX_ROUNDS
- * from the login.defs file. Falls back to compiled-in defaults if the file
- * is missing, unreadable, or does not contain a given directive.
+ * Parses ENCRYPT_METHOD, YESCRYPT_COST_FACTOR, and SHA_CRYPT_MAX_ROUNDS.
+ * Falls back to compiled-in defaults if the file is missing or a directive
+ * is absent.
  *
  * Returns: 0 on success (settings filled), -1 on invalid args (errno set)
- *
- * NOTE: This always returns 0 (with defaults) unless ops is NULL.
- * A missing login.defs file is not an error; it uses DEFAULT_ENCRYPT_METHOD.
  */
 int get_encrypt_settings(const struct syscall_ops *ops,
                          const char *login_defs_path,
@@ -143,8 +141,7 @@ int get_encrypt_settings(const struct syscall_ops *ops,
  * @salt_buf: Output buffer for the salt string
  * @salt_len: Size of salt_buf (use SALT_BUF_SIZE)
  *
- * Generates a salt appropriate for the given algorithm using
- * crypt_gensalt_ra(), which correctly handles each algorithm:
+ * Uses crypt_gensalt_ra(), which correctly handles each algorithm:
  * - SHA-512 ($6$): "rounds=N$" prefix in salt, count = sha_rounds
  * - SHA-256 ($5$): "rounds=N$" prefix in salt, count = sha_rounds
  * - yescrypt ($y$): cost encoded as param string, count = yescrypt_cost
@@ -169,10 +166,6 @@ int generate_salt(const struct syscall_ops *ops,
  * @hash_buf: Output buffer for the hash string
  * @hash_len: Size of hash_buf (use HASH_BUF_SIZE)
  *
- * Generates a fresh salt, then hashes the password with crypt_r.
- * The resulting string is a complete crypt(3) hash including the
- * algorithm prefix and embedded salt.
- *
  * Returns: 0 on success, -1 on failure (errno set)
  */
 int hash_password(const struct syscall_ops *ops, const char *password,
@@ -185,9 +178,7 @@ int hash_password(const struct syscall_ops *ops, const char *password,
  * @password: Plaintext password to verify
  * @stored_hash: Complete crypt(3) hash from the password file
  *
- * Re-hashes the password using the salt embedded in stored_hash,
- * then compares using a constant-time XOR accumulator to prevent
- * timing side-channel attacks.
+ * Compares using a constant-time XOR accumulator to prevent timing attacks.
  *
  * Returns: 0 if password matches, -1 if mismatch or error (errno set)
  */
@@ -205,11 +196,10 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  * @path: Path to the password file
  * @expected_uid: UID that must own the file
  *
- * Opens the file with O_NOFOLLOW (prevents symlink attacks), then
- * fstat()s it to verify:
+ * Opens with O_NOFOLLOW (prevents symlink attacks), then fstat() verifies:
  * - File is owned by expected_uid
  * - Mode is 0600 or stricter (no group/world read)
- * - File is a regular file (not a symlink or device)
+ * - File is a regular file
  *
  * Returns: open fd on success (caller must close), -1 on failure (errno set)
  */
@@ -218,13 +208,10 @@ int validate_passwd_file(const struct syscall_ops *ops, const char *path,
 
 /**
  * read_passwd_hash - Read the hash from a validated password file fd
- * @ops: Syscall operations (fopen, fclose, fgets, close)
- * @fd: Open file descriptor (from validate_passwd_file)
+ * @ops: Syscall operations (close)
+ * @fd: Open file descriptor (from validate_passwd_file, consumed by this fn)
  * @hash_buf: Output buffer for the stored hash
  * @hash_len: Size of hash_buf (use HASH_BUF_SIZE)
- *
- * Reads the first line of the password file (the crypt hash).
- * The fd is consumed (closed) by this function.
  *
  * Returns: 0 on success, -1 on failure
  */
@@ -263,9 +250,9 @@ void parse_pam_args(int argc, const char **argv, struct pam_args *args);
  * @file_override: Path override from 'file=' arg, or NULL for default
  * @nullok: If true, missing password file returns success
  *
- * This function contains the full authentication logic:
+ * Full authentication logic without PAM dependency:
  * 1. Look up user home directory via getpwnam_r
- * 2. Build password file path (~/.vnc/passwd or file_override)
+ * 2. Build password file path (~/.config/vnc/fnal_vncpasswd or file_override)
  * 3. Open and validate the password file (TOCTOU-safe)
  * 4. Read stored hash from file
  * 5. mlock password buffer in RAM
@@ -273,15 +260,51 @@ void parse_pam_args(int argc, const char **argv, struct pam_args *args);
  * 7. explicit_bzero sensitive buffers
  *
  * Returns: PAM return code (PAM_SUCCESS, PAM_AUTH_ERR, etc.)
- *
- * NOTE: This function returns PAM codes even though it doesn't include
- * PAM headers. The codes are plain integers defined in autoconf.h or
- * returned directly. The PAM entry points in pam_vncpasswd.c map the
- * return value directly.
  */
 int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
                           const char *password, const char *file_override,
                           bool nullok);
+
+/* ============================================================================
+ * Directory Management (shared with vncpasswd CLI)
+ * ============================================================================
+ */
+
+/**
+ * ensure_dir - Create a directory (and its parents) if it does not exist
+ * @ops: Syscall operations (lstat, mkdir)
+ * @path: Full path to create (e.g., "/home/user/.config/vnc")
+ *
+ * Creates each component of path with mode 0700 if it does not already
+ * exist. Existing directories are silently accepted (like mkdir -p).
+ * Fails if any path component exists but is not a directory.
+ *
+ * Returns: 0 on success, -1 on failure (errno set)
+ */
+int ensure_dir(const struct syscall_ops *ops, const char *path);
+
+/**
+ * atomic_write_passwd - Atomically write a hash to the password file
+ * @ops: Syscall operations (mkstemp, fchmod, write, fsync, rename, unlink)
+ * @path: Destination path for the password file
+ * @hash: The crypt(3) hash string to write
+ *
+ * Write sequence:
+ * 1. mkstemp() in the same directory
+ * 2. fchmod(0600) before writing data
+ * 3. write hash + newline
+ * 4. fsync() to flush to disk
+ * 5. rename() into place (atomic on POSIX filesystems)
+ *
+ * Returns: 0 on success, -1 on failure (errno set)
+ */
+int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
+                        const char *hash);
+
+/* ============================================================================
+ * Password Reading (fnal-vncpasswd CLI)
+ * ============================================================================
+ */
 
 /**
  * read_password_interactive - Read password interactively with confirmation
@@ -299,47 +322,8 @@ int read_password_interactive(char *buf, size_t buflen);
  * @buf: Output buffer
  * @buflen: Size of output buffer
  *
- * Reads one line from stdin, strips trailing newline.
- *
  * Returns: 0 on success, -1 on failure (errno set)
  */
 int read_password_noninteractive(char *buf, size_t buflen);
 
-/* ============================================================================
- * Directory Management (shared with vncpasswd CLI)
- * ============================================================================
- */
-
-/**
- * ensure_vnc_dir - Create the VNC password directory if it does not exist
- * @ops: Syscall operations (lstat, mkdir)
- * @path: Full path to the VNC directory (e.g., "/home/user/.vnc")
- *
- * Creates the directory with mode 0700 if it does not already exist.
- * If the directory already exists (EEXIST), returns success.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int ensure_vnc_dir(const struct syscall_ops *ops, const char *path);
-
-/**
- * atomic_write_passwd - Atomically write a hash to the password file
- * @ops: Syscall operations (mkstemp, fchmod, write, fsync, rename, unlink)
- * @path: Destination path for the password file
- * @hash: The crypt(3) hash string to write
- *
- * Write sequence:
- * 1. mkstemp() to create a temporary file in the same directory
- * 2. fchmod(0600) to set permissions before writing data
- * 3. write the hash + newline
- * 4. fsync() to flush to disk
- * 5. rename() into place (atomic on POSIX filesystems)
- *
- * On any error after mkstemp, the temporary file is unlinked.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
-                        const char *hash);
-
-#endif /* PAM_VNCPASSWD_H */
+#endif /* PAM_FNAL_VNCPASSWD_H */

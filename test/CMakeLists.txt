@@ -9,8 +9,6 @@ enable_testing()
 
 # ##############################################################################
 # Coverage configuration (compiler aware, optional)
-#
-# Enabled only if tools exist
 
 set(HAVE_COVERAGE_TOOLS OFF)
 
@@ -50,15 +48,12 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
     set(COVERAGE_LINK_FLAGS -fprofile-instr-generate)
 
     message(STATUS "Coverage enabled: Clang + llvm-cov")
-  endif(
-    LLVM_PROFDATA_EXEC
-    AND LLVM_COV_EXEC
-    AND GENHTML_EXEC)
+  endif()
 
-endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+endif()
 
 # ##############################################################################
-# Helper macros
+# Helper macro
 
 macro(add_unit_test TEST_NAME)
   add_executable(${TEST_NAME} test/${TEST_NAME}.c ${PAM_VNCPASSWD_LIB_SOURCES})
@@ -72,35 +67,70 @@ macro(add_unit_test TEST_NAME)
     ${TEST_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
                          ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR})
 
-  target_link_libraries(${TEST_NAME} PRIVATE crypt)
+  set(TEST_LIBS crypt)
+  if(HAVE_SELINUX)
+    target_compile_definitions(${TEST_NAME} PRIVATE HAVE_SELINUX)
+    target_include_directories(${TEST_NAME} PRIVATE ${SELINUX_INCLUDE_DIR})
+    list(APPEND TEST_LIBS ${SELINUX_LIBRARY})
+  endif()
+
+  target_link_libraries(${TEST_NAME} PRIVATE ${TEST_LIBS})
 
   if(HAVE_COVERAGE_TOOLS)
     target_compile_options(${TEST_NAME} PRIVATE ${COVERAGE_COMPILE_FLAGS})
     target_link_options(${TEST_NAME} PRIVATE ${COVERAGE_LINK_FLAGS})
-  endif(HAVE_COVERAGE_TOOLS)
+  endif()
 
-  # keep a record of the binary
   list(APPEND UNIT_TEST_BINARIES ${TEST_NAME})
-  # make the list visible to later calls
   set(UNIT_TEST_BINARIES
       "${UNIT_TEST_BINARIES}"
       CACHE INTERNAL "")
 
   add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
-endmacro(add_unit_test TEST_NAME)
+endmacro()
 
 # ##############################################################################
 # Tests
 
 if(BUILD_TESTING)
-  add_unit_test(test_pam_vncpasswd)
-  add_unit_test(test_vncpasswd)
+  add_unit_test(test_pam_fnal_vncpasswd)
+
+  # test_vncpasswd also needs vncpasswd.c (with VNCPASSWD_TESTING to suppress main())
+  add_executable(test_vncpasswd
+                 ${CMAKE_SOURCE_DIR}/test/test_vncpasswd.c
+                 ${PAM_VNCPASSWD_LIB_SOURCES}
+                 ${CMAKE_SOURCE_DIR}/src/vncpasswd.c)
+
+  target_compile_definitions(test_vncpasswd PRIVATE _GNU_SOURCE VNCPASSWD_TESTING)
+  target_compile_features(
+    test_vncpasswd PRIVATE c_std_23 c_restrict c_function_prototypes
+                           c_static_assert)
+  target_include_directories(
+    test_vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/src
+                           ${CMAKE_SOURCE_DIR}/test ${CMAKE_BINARY_DIR})
+
+  set(TEST_VNCPASSWD_LIBS crypt)
+  if(HAVE_SELINUX)
+    target_compile_definitions(test_vncpasswd PRIVATE HAVE_SELINUX)
+    target_include_directories(test_vncpasswd PRIVATE ${SELINUX_INCLUDE_DIR})
+    list(APPEND TEST_VNCPASSWD_LIBS ${SELINUX_LIBRARY})
+  endif()
+  target_link_libraries(test_vncpasswd PRIVATE ${TEST_VNCPASSWD_LIBS})
+
+  if(HAVE_COVERAGE_TOOLS)
+    target_compile_options(test_vncpasswd PRIVATE ${COVERAGE_COMPILE_FLAGS})
+    target_link_options(test_vncpasswd PRIVATE ${COVERAGE_LINK_FLAGS})
+  endif()
+
+  list(APPEND UNIT_TEST_BINARIES test_vncpasswd)
+  set(UNIT_TEST_BINARIES "${UNIT_TEST_BINARIES}" CACHE INTERNAL "")
+  add_test(NAME test_vncpasswd COMMAND test_vncpasswd)
 
   add_custom_target(
     test_binaries
     DEPENDS ${UNIT_TEST_BINARIES}
     COMMENT "Building every unit test binary")
-endif(BUILD_TESTING)
+endif()
 
 # ##############################################################################
 # Coverage target
@@ -167,6 +197,6 @@ if(BUILD_TESTING AND HAVE_COVERAGE_TOOLS)
         "Running tests and generating Clang coverage report in ${COVERAGE_OUTPUT_DIR}/index.html"
     )
 
-  endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+  endif()
 
-endif(BUILD_TESTING AND HAVE_COVERAGE_TOOLS)
+endif()
