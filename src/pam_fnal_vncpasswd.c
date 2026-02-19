@@ -72,8 +72,13 @@
  */
 static int parse_login_defs_line(char *line, const char *key,
                                  char *value_out, size_t value_len) {
-  char *p = line;
+  char *p;
   size_t key_len;
+
+  if (!line || !key || !value_out || value_len == 0)
+    return 0;
+
+  p = line;
 
   /* Skip leading whitespace */
   while (*p == ' ' || *p == '\t')
@@ -364,15 +369,28 @@ int verify_password(const struct syscall_ops *ops, const char *password,
 
   /*
    * Constant-time comparison using XOR accumulator.
-   * No early exit — prevents timing side-channel leakage about how
-   * many characters of the hash match.
+   *
+   * We iterate to max(computed_len, stored_len) rather than the minimum,
+   * using zero as a "padding" byte for the shorter string. This ensures
+   * the loop runs for a fixed number of iterations regardless of how many
+   * characters match, preventing a length-based timing side-channel.
+   *
+   * Without this fix, iterating only to min() would leak which of the two
+   * strings is shorter (i.e., whether the supplied password produced a
+   * hash of the same length as the stored one), giving an attacker partial
+   * information about the stored hash format or algorithm.
    */
   computed_len = strlen(computed);
   stored_len = strlen(stored_hash);
   diff = (unsigned char)(computed_len != stored_len);
 
-  for (i = 0; i < computed_len && i < stored_len; i++) {
-    diff |= (unsigned char)computed[i] ^ (unsigned char)stored_hash[i];
+  {
+    size_t max_len = computed_len > stored_len ? computed_len : stored_len;
+    for (i = 0; i < max_len; i++) {
+      unsigned char c = (i < computed_len) ? (unsigned char)computed[i] : 0;
+      unsigned char s = (i < stored_len) ? (unsigned char)stored_hash[i] : 0;
+      diff |= c ^ s;
+    }
   }
 
   explicit_bzero(&cd, sizeof(cd));
@@ -434,8 +452,17 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd,
   char *p;
 
   if (!ops || fd < 0 || !hash_buf || hash_len == 0) {
-    if (ops && fd >= 0)
-      ops->close(fd);
+    /*
+     * Close fd even when ops is NULL to avoid leaking the descriptor.
+     * When ops is unavailable we fall back to the bare close(2) syscall
+     * because we own the fd regardless of which abstraction layer is used.
+     */
+    if (fd >= 0) {
+      if (ops)
+        ops->close(fd);
+      else
+        close(fd);
+    }
     errno = EINVAL;
     return -1;
   }
@@ -537,6 +564,18 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
   } else {
     if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0
         || pwresult == NULL) {
+      /*
+       * USER ENUMERATION NOTE:
+       * We intentionally return PAM_USER_UNKNOWN (not PAM_AUTH_ERR) for
+       * users absent from the system password database. This is standard
+       * PAM module behaviour (cf. pam_unix) and lets PAM stacks use
+       * pam_succeed_if/pam_listfile to gate access early. An attacker
+       * who can enumerate system users via other means (e.g., getent,
+       * LDAP, SSH banners) gains no additional information from this
+       * return code. If concealment is required, wrap the auth stack with
+       * a pam_faildelay and set 'nullok' so that missing-file paths also
+       * collapse into a uniform delay before responding.
+       */
       ret = PAM_USER_UNKNOWN;
       goto out;
     }
@@ -590,6 +629,24 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
   if (!ops || !path || path[0] == '\0') {
     errno = EINVAL;
     return -1;
+  }
+
+  /*
+   * Reject paths that contain directory traversal sequences ("..").
+   * We build passwd paths from pw_dir (from the system password database)
+   * and VNC_PASSWD_DIR (a build-time constant), neither of which should
+   * contain ".." in normal operation. Rejecting them here is a defence-in-
+   * depth measure against misconfigured or adversarially crafted inputs.
+   */
+  {
+    size_t plen = strlen(path);
+    if (strstr(path, "/../") != NULL ||
+        strncmp(path, "../", 3) == 0 ||
+        (plen >= 3 && strcmp(path + plen - 3, "/..") == 0) ||
+        strcmp(path, "..") == 0) {
+      errno = EINVAL;
+      return -1;
+    }
   }
 
   /*

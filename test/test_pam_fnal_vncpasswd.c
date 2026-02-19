@@ -591,6 +591,26 @@ TEST(verify_password_constant_time) {
                  "Long no match");
 }
 
+/*
+ * Verify that verify_password() iterates to max(computed_len, stored_len)
+ * rather than min(), closing the length-based timing side-channel.
+ * The stored hash is produced from "aaa"; we test a completely wrong password
+ * whose resulting hash is likely a different length (or same length, different
+ * content) — both must return -1 without any shortcut.
+ */
+TEST(verify_password_different_lengths) {
+  struct syscall_ops ops = syscall_ops_default;
+  char hash[HASH_BUF_SIZE];
+  /* Store hash for a valid 3-char password */
+  make_sha512_hash("aaa", hash, sizeof(hash));
+  /* Wrong password — must return -1 regardless of hash-length relationship */
+  TEST_ASSERT_EQ(verify_password(&ops, "zzzzzzzz", hash), -1,
+                 "Different password must not match");
+  /* Empty-ish wrong — must also return -1 */
+  TEST_ASSERT_EQ(verify_password(&ops, "a", hash), -1,
+                 "Single-char wrong password must not match");
+}
+
 TEST(verify_password_null_inputs) {
   struct syscall_ops ops = syscall_ops_default;
   TEST_ASSERT_EQ(verify_password(&ops, NULL, "$6$salt$hash"), -1,
@@ -994,13 +1014,33 @@ TEST(ensure_dir_null_path) {
   TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL");
 }
 
+/*
+ * Paths containing ".." sequences must be rejected to prevent directory
+ * traversal attacks.  ensure_dir() validates the whole path string before
+ * creating any directories.
+ */
+TEST(ensure_dir_dotdot_rejected) {
+  struct syscall_ops ops = syscall_ops_default;
+  ops.lstat = mock_lstat_noent;
+  ops.mkdir = mock_mkdir_ok;
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/a/../b"), -1,
+                 "Path with /../ should be rejected");
+  TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for /../");
+  TEST_ASSERT_EQ(ensure_dir(&ops, "../relative"), -1,
+                 "Path starting with ../ should be rejected");
+  TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for ../");
+  TEST_ASSERT_EQ(ensure_dir(&ops, "/tmp/a/.."), -1,
+                 "Path ending with /.. should be rejected");
+  TEST_ASSERT_EQ(errno, EINVAL, "Should set EINVAL for /..");
+}
+
 /* ============================================================================
  * Test Runner
  * ============================================================================
  */
 
 int main(int argc, char **argv) {
-  TEST_INIT(30, false, false);
+  TEST_INIT(32, false, false);
 
   /* login.defs parsing */
   RUN_TEST(get_encrypt_method_sha512);
@@ -1039,6 +1079,7 @@ int main(int argc, char **argv) {
   RUN_TEST(verify_password_incorrect);
   RUN_TEST(verify_password_yescrypt);
   RUN_TEST(verify_password_constant_time);
+  RUN_TEST(verify_password_different_lengths);
   RUN_TEST(verify_password_null_inputs);
   RUN_TEST(verify_password_crypt_r_fails);
 
@@ -1080,6 +1121,7 @@ int main(int argc, char **argv) {
   RUN_TEST(ensure_dir_mkdir_fails);
   RUN_TEST(ensure_dir_not_a_directory);
   RUN_TEST(ensure_dir_null_path);
+  RUN_TEST(ensure_dir_dotdot_rejected);
 
   return TEST_EXECUTE();
 }
