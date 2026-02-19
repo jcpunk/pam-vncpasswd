@@ -1,25 +1,21 @@
 /**
  * pam_entry.c - PAM module entry points
  *
- * Thin wrappers that bridge the PAM API to the core logic in auth.c.
- *
- * WHY SEPARATE FROM auth.c:
- * auth.c has no PAM dependency, making it fully testable via the
- * syscall_ops mock pattern.  This file contains only the PAM glue:
- * extract username/password from the PAM handle and call
+ * Thin glue layer bridging the PAM API to the core logic in auth.c.
+ * Extracts username and password from the PAM handle, then calls
  * authenticate_vnc_user().
  *
- * PAM headers are expected to be present in the build environment
- * (pam-devel on RHEL/Fedora).  Tests do not compile this file; they
- * call authenticate_vnc_user() directly.
+ * PAM headers are pulled in via auth.h.  Tests do not compile this file;
+ * they call authenticate_vnc_user() directly.
+ *
+ * ALL SIX pam_sm_* ENTRY POINTS ARE REQUIRED.  Linux-PAM resolves them by
+ * symbol name at dlopen time based on which service types appear in
+ * /etc/pam.d/.  A missing symbol causes dlsym failure and breaks the entire
+ * auth stack.  The PAM_SM_* defines above tell pam_modules.h to declare the
+ * corresponding prototypes; omitting them for unused types would produce
+ * implicit-declaration warnings while the stubs themselves must still exist.
  */
 
-#define PAM_SM_AUTH
-#define PAM_SM_ACCOUNT
-#define PAM_SM_SESSION
-#define PAM_SM_PASSWORD
-#include <security/pam_ext.h>
-#include <security/pam_modules.h>
 #include <syslog.h>
 
 #include "auth.h"
@@ -48,16 +44,22 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
   }
 
   return authenticate_vnc_user(&syscall_ops_default, username, authtok,
-                               args.file, args.nullok);
+                               args.nullok);
 }
 
+/*
+ * This module manages no credentials.  PAM_IGNORE tells the PAM stack that
+ * setcred is not applicable here, which is correct and avoids interfering
+ * with stacked modules that inspect setcred return values.
+ * PAM_SUCCESS would falsely signal that credentials were established.
+ */
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc,
                               const char **argv) {
   (void)pamh;
   (void)flags;
   (void)argc;
   (void)argv;
-  return PAM_SUCCESS;
+  return PAM_IGNORE;
 }
 
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
@@ -66,7 +68,7 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
   (void)flags;
   (void)argc;
   (void)argv;
-  return PAM_SUCCESS;
+  return PAM_SERVICE_ERR;
 }
 
 PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
@@ -75,7 +77,7 @@ PAM_EXTERN int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
   (void)flags;
   (void)argc;
   (void)argv;
-  return PAM_SUCCESS;
+  return PAM_SERVICE_ERR;
 }
 
 PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
@@ -84,7 +86,7 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
   (void)flags;
   (void)argc;
   (void)argv;
-  return PAM_SUCCESS;
+  return PAM_SERVICE_ERR;
 }
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc,
@@ -93,9 +95,8 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc,
   (void)argc;
   (void)argv;
   /*
-   * This module does not support password changes via PAM.
-   * Log an informative message so administrators understand why the
-   * operation was denied and what the correct alternative is.
+   * Password changes are not supported; use fnal-vncpasswd instead.
+   * Log at INFO so administrators understand why the operation was denied.
    */
   pam_syslog(pamh, LOG_INFO,
              "pam_fnal_vncpasswd: password changes not supported via PAM; "
