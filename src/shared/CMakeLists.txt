@@ -14,9 +14,9 @@
 
 add_library(vnc_shared OBJECT syscall_ops_default.c vnc_path.c)
 
-target_compile_features(vnc_shared PUBLIC c_std_23 c_restrict
-                                          c_function_prototypes c_static_assert)
-target_compile_definitions(vnc_shared PUBLIC _GNU_SOURCE)
+target_compile_features(
+  vnc_shared PRIVATE c_std_11 c_restrict c_function_prototypes c_static_assert)
+target_compile_definitions(vnc_shared PRIVATE _GNU_SOURCE)
 
 # Both the generated autoconf.h (in the top-level binary dir) and the shared
 # headers (in this source dir) must be on the include path for all consumers.

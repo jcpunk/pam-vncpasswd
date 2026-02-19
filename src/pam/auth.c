@@ -26,6 +26,7 @@
 #include "auth.h"
 #include "autoconf.h"
 #include "syscall_ops.h"
+#include "vnc_crypto.h"
 #include "vnc_path.h"
 
 /*
@@ -127,6 +128,7 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
   FILE *fp;
   char *result;
   char *p;
+  size_t len;
 
   if (!ops || fd < 0 || !hash_buf || hash_len == 0) {
     /*
@@ -169,8 +171,21 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
     return -1;
   }
 
+  /*
+   * Check for zero length before pointer arithmetic.
+   *
+   * Without this check, `hash_buf + strlen(hash_buf) - 1` underflows to
+   * a pointer before hash_buf when the buffer is empty, producing undefined
+   * behaviour in the trimming loop that follows.
+   */
+  len = strlen(hash_buf);
+  if (len == 0) {
+    errno = ENODATA;
+    return -1;
+  }
+
   /* Strip trailing whitespace and newline */
-  p = hash_buf + strlen(hash_buf) - 1;
+  p = hash_buf + len - 1;
   while (p >= hash_buf && (*p == '\r' || *p == '\n' || *p == ' '))
     *p-- = '\0';
 
@@ -243,18 +258,96 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  * ============================================================================
  */
 
-int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
-                          const char *password, const char *file_override,
-                          bool nullok) {
+/*
+ * open_passwd_file - resolve the password file path and return an open fd
+ *
+ * Extracted from authenticate_vnc_user to keep error handling flat without
+ * requiring goto.  Returns an open fd on success, -1 on failure.
+ * On failure, *ret_pam is set to the appropriate PAM return code.
+ */
+static int open_passwd_file(const struct syscall_ops *ops,
+                             const char *username, const char *file_override,
+                             bool nullok, int *ret_pam) {
+  char passwd_path[VNC_PATH_MAX];
   struct passwd pw;
   struct passwd *pwresult;
   char pwbuf[4096];
-  char passwd_path[VNC_PATH_MAX];
-  char hash[VNC_HASH_BUF_SIZE];
   struct stat st;
-  int fd = -1;
-  int ret;
+  int fd;
+
+  if (file_override) {
+    if (build_vnc_passwd_path(NULL, file_override, passwd_path,
+                              sizeof(passwd_path)) < 0) {
+      *ret_pam = PAM_AUTH_ERR;
+      return -1;
+    }
+    fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+    if (fd < 0) {
+      *ret_pam = (errno == ENOENT && nullok) ? PAM_SUCCESS
+                                             : PAM_AUTHINFO_UNAVAIL;
+      return -1;
+    }
+    /*
+     * Validate that the override path is a regular file.  Without this
+     * check a FIFO at the override path would block on read indefinitely.
+     * An attacker who can create a FIFO at a predictable path could cause
+     * an auth hang; the S_ISREG guard closes that window.
+     */
+    if (ops->fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+      ops->close(fd);
+      *ret_pam = PAM_AUTH_ERR;
+      return -1;
+    }
+    return fd;
+  }
+
+  if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
+      pwresult == NULL) {
+    /*
+     * USER ENUMERATION NOTE:
+     * We intentionally return PAM_USER_UNKNOWN (not PAM_AUTH_ERR) for
+     * users absent from the system password database.  This is standard
+     * PAM module behaviour (cf. pam_unix) and lets PAM stacks use
+     * pam_succeed_if/pam_listfile to gate access early.  An attacker
+     * who can enumerate system users via other means (e.g., getent,
+     * LDAP, SSH banners) gains no additional information from this
+     * return code.  If concealment is required, wrap the auth stack with
+     * a pam_faildelay and set 'nullok' so that missing-file paths also
+     * collapse into a uniform delay before responding.
+     */
+    *ret_pam = PAM_USER_UNKNOWN;
+    return -1;
+  }
+
+  if (!pw.pw_dir || pw.pw_dir[0] == '\0') {
+    *ret_pam = PAM_USER_UNKNOWN;
+    return -1;
+  }
+
+  if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path,
+                            sizeof(passwd_path)) < 0) {
+    *ret_pam = PAM_AUTH_ERR;
+    return -1;
+  }
+
+  fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
+  if (fd < 0) {
+    *ret_pam = (errno == ENOENT && nullok) ? PAM_SUCCESS
+                                           : PAM_AUTHINFO_UNAVAIL;
+    return -1;
+  }
+
+  return fd;
+}
+
+int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
+                          const char *password, const char *file_override,
+                          bool nullok) {
+  char hash[VNC_HASH_BUF_SIZE];
   bool mlocked = false;
+  int pam_err = PAM_AUTH_ERR;
+  int fd;
+  int result;
 
   if (!ops || !username || !password)
     return PAM_AUTH_ERR;
@@ -266,88 +359,42 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
    * verify_password() will return -1, yielding PAM_AUTH_ERR.
    * This keeps the authentication path free of policy decisions that
    * belong in the password-setting tool.
+   *
+   * mlock is called first, before any path resolution, so the password
+   * is locked in RAM for the entire duration of the authentication.
    */
-
-  /* Lock the password in RAM; mlock failure is non-fatal */
   if (ops->mlock(password, strlen(password) + 1) == 0)
     mlocked = true;
 
-  if (file_override) {
-    if (build_vnc_passwd_path(NULL, file_override, passwd_path,
-                              sizeof(passwd_path)) < 0) {
-      ret = PAM_AUTH_ERR;
-      goto out;
-    }
-    fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-    if (fd < 0) {
-      ret = (errno == ENOENT && nullok) ? PAM_SUCCESS : PAM_AUTHINFO_UNAVAIL;
-      goto out;
-    }
-    /*
-     * Validate that the override path is a regular file.  Without this check
-     * a FIFO at the override path would have been opened non-blocking above
-     * but would then be read from indefinitely.  An attacker who can create
-     * a FIFO at a predictable path could cause an auth hang; the S_ISREG
-     * guard closes that window.  Mirror the same validation used by the
-     * normal (non-override) path through validate_passwd_file().
-     */
-    if (ops->fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
-      ops->close(fd);
-      ret = PAM_AUTH_ERR;
-      goto out;
-    }
-  } else {
-    if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
-        pwresult == NULL) {
-      /*
-       * USER ENUMERATION NOTE:
-       * We intentionally return PAM_USER_UNKNOWN (not PAM_AUTH_ERR) for
-       * users absent from the system password database.  This is standard
-       * PAM module behaviour (cf. pam_unix) and lets PAM stacks use
-       * pam_succeed_if/pam_listfile to gate access early.  An attacker
-       * who can enumerate system users via other means (e.g., getent,
-       * LDAP, SSH banners) gains no additional information from this
-       * return code.  If concealment is required, wrap the auth stack with
-       * a pam_faildelay and set 'nullok' so that missing-file paths also
-       * collapse into a uniform delay before responding.
-       */
-      ret = PAM_USER_UNKNOWN;
-      goto out;
-    }
+  fd = open_passwd_file(ops, username, file_override, nullok, &pam_err);
+  if (fd < 0) {
+    if (mlocked)
+      ops->munlock(password, strlen(password) + 1);
+    return pam_err;
+  }
 
-    if (!pw.pw_dir || pw.pw_dir[0] == '\0') {
-      ret = PAM_USER_UNKNOWN;
-      goto out;
-    }
-
-    if (build_vnc_passwd_path(pw.pw_dir, NULL, passwd_path,
-                              sizeof(passwd_path)) < 0) {
-      ret = PAM_AUTH_ERR;
-      goto out;
-    }
-
-    fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
-    if (fd < 0) {
-      ret = (errno == ENOENT && nullok) ? PAM_SUCCESS : PAM_AUTHINFO_UNAVAIL;
-      goto out;
+  /*
+   * Mark fd consumed BEFORE calling read_passwd_hash.
+   *
+   * read_passwd_hash always closes fd (via fdopen + fclose), whether it
+   * succeeds or fails.  Zeroing our local copy before the call ensures we
+   * never attempt a second close on that descriptor.
+   */
+  {
+    int consumed_fd = fd;
+    fd = -1;
+    if (read_passwd_hash(ops, consumed_fd, hash, sizeof(hash)) < 0) {
+      explicit_bzero(hash, sizeof(hash));
+      if (mlocked)
+        ops->munlock(password, strlen(password) + 1);
+      return PAM_AUTHINFO_UNAVAIL;
     }
   }
 
-  if (read_passwd_hash(ops, fd, hash, sizeof(hash)) < 0) {
-    ret = PAM_AUTHINFO_UNAVAIL;
-    goto out_wipe;
-  }
-  fd = -1; /* read_passwd_hash consumed fd */
-
-  ret = (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS
-                                                     : PAM_AUTH_ERR;
-
-out_wipe:
+  result = (verify_password(ops, password, hash) == 0) ? PAM_SUCCESS
+                                                        : PAM_AUTH_ERR;
   explicit_bzero(hash, sizeof(hash));
-out:
-  if (fd >= 0)
-    ops->close(fd);
   if (mlocked)
     ops->munlock(password, strlen(password) + 1);
-  return ret;
+  return result;
 }

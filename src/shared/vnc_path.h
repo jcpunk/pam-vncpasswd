@@ -19,13 +19,15 @@
  *   directory : home_dir / VNC_PASSWD_DIR
  *               e.g. /home/user/.config/vnc
  *   file      : home_dir / VNC_PASSWD_DIR / VNC_PASSWD_FILE
- *               e.g. /home/user/.config/vnc/fnal_vncpasswd
+ *               e.g. /home/user/.config/vnc/fnal-vncpasswd
+ *
+ * CRYPTO BUFFER SIZES:
+ * VNC_HASH_BUF_SIZE is defined in vnc_crypto.h, not here.
  */
 
 #ifndef VNC_PATH_H
 #define VNC_PATH_H
 
-#include <crypt.h>
 #include <stddef.h>
 
 /**
@@ -35,13 +37,6 @@
  * <linux/limits.h> and to make the intent explicit.
  */
 enum { VNC_PATH_MAX = 4096 };
-
-/**
- * VNC_HASH_BUF_SIZE - buffer large enough for any crypt(3) output string
- *
- * CRYPT_OUTPUT_SIZE (384) is the maximum defined by libxcrypt.
- */
-enum { VNC_HASH_BUF_SIZE = CRYPT_OUTPUT_SIZE };
 
 /**
  * build_vnc_dir_path - Construct the VNC configuration directory path

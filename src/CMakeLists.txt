@@ -26,7 +26,7 @@ set(VNC_PASSWD_DIR
     ".config/vnc"
     CACHE STRING "VNC password subdirectory under user home")
 set(VNC_PASSWD_FILE
-    "fnal_vncpasswd"
+    "fnal-vncpasswd"
     CACHE STRING "VNC password filename")
 set(MAX_PASSWORD_LENGTH
     8
@@ -65,17 +65,9 @@ else()
   message(STATUS "libselinux not found — selinux_restorecon disabled")
 endif()
 
-# PAM: only required for the PAM module; the CLI has no PAM dependency.
-find_library(PAM_LIBRARY pam REQUIRED)
-find_path(PAM_INCLUDE_DIR security/pam_modules.h REQUIRED)
-message(STATUS "PAM library: ${PAM_LIBRARY}")
-message(STATUS "PAM include: ${PAM_INCLUDE_DIR}")
-add_library(pam_dep INTERFACE)
-target_include_directories(pam_dep INTERFACE ${PAM_INCLUDE_DIR})
-target_link_libraries(pam_dep INTERFACE ${PAM_LIBRARY})
-
 # ##############################################################################
-# Subdirectories
+# Subdirectories NOTE: PAM discovery (find_library/find_path for libpam) lives
+# in pam/CMakeLists.txt alongside the only target that needs it.
 # ##############################################################################
 
 add_subdirectory(shared)

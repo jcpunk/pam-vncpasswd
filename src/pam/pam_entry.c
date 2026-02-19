@@ -89,10 +89,16 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc,
                                 const char **argv) {
-  (void)pamh;
   (void)flags;
   (void)argc;
   (void)argv;
-  /* This module does not support password changes via PAM. */
+  /*
+   * This module does not support password changes via PAM.
+   * Log an informative message so administrators understand why the
+   * operation was denied and what the correct alternative is.
+   */
+  pam_syslog(pamh, LOG_INFO,
+             "pam_fnal_vncpasswd: password changes not supported via PAM; "
+             "use fnal-vncpasswd to set the VNC password");
   return PAM_PERM_DENIED;
 }

@@ -8,11 +8,11 @@
 #ifndef PAM_FNAL_VNCPASSWD_AUTOCONF_H
 #define PAM_FNAL_VNCPASSWD_AUTOCONF_H
 
-/* project/program name */
-#define PROJECT_NAME "@PROJECT_NAME@"
+/* Project/program name */
+#define PACKAGE_NAME "@PROJECT_NAME@"
 
 /* Version information */
-#define VERSION "@VERSION@"
+#define PACKAGE_VERSION "@VERSION@"
 
 /* Path to system login.defs file */
 #define LOGIN_DEFS_PATH "@LOGIN_DEFS_PATH@"
@@ -39,6 +39,8 @@
  * truncation and interoperability issues with VNC clients.
  */
 #define MAX_PASSWORD_LENGTH @MAX_PASSWORD_LENGTH@
+_Static_assert(MAX_PASSWORD_LENGTH == 8,
+               "RFB VNC Authentication limits passwords to exactly 8 characters");
 
 /* Minimum password length enforced by fnal-vncpasswd */
 #define MIN_PASSWORD_LENGTH @MIN_PASSWORD_LENGTH@

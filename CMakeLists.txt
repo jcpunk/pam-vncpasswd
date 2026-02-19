@@ -98,9 +98,8 @@ endif()
 set(_expected_pam_dir "${CMAKE_INSTALL_FULL_LIBDIR}/security")
 
 if(DEFINED PAM_MODULE_DIR AND NOT PAM_MODULE_DIR STREQUAL _expected_pam_dir)
-  message(WARNING
-    "PAM_MODULE_DIR (${PAM_MODULE_DIR}) differs from expected "
-    "(${_expected_pam_dir}) for this platform")
+  message(WARNING "PAM_MODULE_DIR (${PAM_MODULE_DIR}) differs from expected "
+                  "(${_expected_pam_dir}) for this platform")
 endif()
 
 if(NOT DEFINED VNC_PASSWD_DIR)
@@ -116,9 +115,10 @@ if(NOT DEFINED VNC_PASSWD_FILE)
 endif()
 
 set(MAX_PASSWORD_LENGTH
-      8
-      CACHE STRING
-            "Maximum password length (VNC RFB protocol limit is 8 characters)" FORCE)
+    8
+    CACHE STRING
+          "Maximum password length (VNC RFB protocol limit is 8 characters)"
+          FORCE)
 
 # ##############################################################################
 # Top Level Configuration Variables
@@ -145,7 +145,6 @@ if(NOT DEFINED DEFAULT_SHA_CRYPT_ROUNDS)
       131071
       CACHE STRING "Default SHA-crypt rounds (SHA_CRYPT_MAX_ROUNDS)")
 endif()
-
 
 if(NOT DEFINED MIN_PASSWORD_LENGTH)
   set(MIN_PASSWORD_LENGTH
@@ -177,9 +176,8 @@ if(NOT MIN_PASSWORD_LENGTH MATCHES "^[0-9]+$")
 endif()
 
 if(NOT MAX_PASSWORD_LENGTH EQUAL 8)
-    message(FATAL_ERROR
-        "MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
-        "Got: ${MAX_PASSWORD_LENGTH}")
+  message(FATAL_ERROR "MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
+                      "Got: ${MAX_PASSWORD_LENGTH}")
 endif()
 
 # ##############################################################################

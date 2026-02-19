@@ -31,6 +31,7 @@
 #include <stddef.h>
 
 #include "syscall_ops.h"
+#include "vnc_crypto.h"
 #include "vnc_path.h"
 
 /* ============================================================================

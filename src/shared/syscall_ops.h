@@ -97,7 +97,7 @@ struct syscall_ops {
    *
    * WHY WE NEED THESE:
    * Must look up the user's home directory to find
-   * ~/.config/vnc/fnal_vncpasswd. Production reads from /etc/passwd + NSS.
+   * ~/.config/vnc/fnal-vncpasswd. Production reads from /etc/passwd + NSS.
    * Tests provide controlled user database without requiring actual system
    * users.
    *
@@ -138,7 +138,11 @@ struct syscall_ops {
    *
    * crypt_gensalt_ra returns a heap-allocated string (caller must free).
    * crypt_r writes to the caller-provided crypt_data buffer (no alloc).
+   *
+   * struct crypt_data is defined in <crypt.h>.  Forward-declared here so
+   * this header remains self-contained without pulling in <crypt.h>.
    */
+  struct crypt_data;
   char *(*crypt_gensalt_ra)(const char *prefix, unsigned long count,
                             const char *rbytes, int nrbytes);
   char *(*crypt_r)(const char *phrase, const char *setting,

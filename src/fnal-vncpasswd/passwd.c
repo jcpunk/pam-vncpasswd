@@ -28,6 +28,7 @@
 #include "autoconf.h"
 #include "passwd.h"
 #include "syscall_ops.h"
+#include "vnc_crypto.h"
 #include "vnc_path.h"
 
 /* ============================================================================
@@ -183,15 +184,37 @@ int get_encrypt_settings(const struct syscall_ops *ops,
 
 /**
  * method_to_prefix - Convert ENCRYPT_METHOD name to crypt prefix
+ *
+ * DES and MD5 are explicitly rejected: DES has no salt prefix and is
+ * trivially brute-forceable; MD5-crypt is cryptographically broken.
+ * Both are unsuitable for new password hashing and must not be accepted
+ * even if present in login.defs.
  */
 static int method_to_prefix(const char *method, char *prefix_out,
                              size_t prefix_len) {
   static const struct {
     const char *name;
     const char *prefix;
-  } methods[] = {{"SHA512", "$6$"}, {"SHA256", "$5$"},    {"YESCRYPT", "$y$"},
-                 {"MD5", "$1$"},    {"BLOWFISH", "$2b$"}, {"BCRYPT", "$2b$"},
-                 {"DES", ""},       {NULL, NULL}};
+  } methods[] = {
+    {"SHA512",   "$6$"},
+    {"SHA256",   "$5$"},
+    {"YESCRYPT", "$y$"},
+    {"BLOWFISH", "$2b$"},
+    {"BCRYPT",   "$2b$"},
+    {NULL,       NULL},
+  };
+
+  /*
+   * Reject insecure algorithms before consulting the table.
+   * DES has no configurable salt prefix and is brute-forceable in seconds.
+   * MD5-crypt ($1$) has been broken since the early 2000s.
+   * Returning an error here causes hash_password() to fail loudly rather
+   * than silently producing a weak hash.
+   */
+  if (strcmp(method, "DES") == 0 || strcmp(method, "MD5") == 0) {
+    errno = EINVAL;
+    return -1;
+  }
 
   for (int i = 0; methods[i].name != NULL; i++) {
     if (strcmp(method, methods[i].name) == 0) {
@@ -229,7 +252,6 @@ int generate_salt(const struct syscall_ops *ops,
    * - SHA-256/SHA-512: SHA_CRYPT_MAX_ROUNDS (e.g., 65536); appended as
    *   "rounds=65536$" in the salt automatically.
    * - bcrypt: log2(rounds); 12 is the conventional safe default.
-   * - MD5/DES: count is ignored.
    */
   if (strcmp(settings->method, "YESCRYPT") == 0) {
     count = settings->yescrypt_cost;
@@ -240,11 +262,32 @@ int generate_salt(const struct syscall_ops *ops,
     count = settings->sha_rounds;
   }
 
-  ssize_t n = ops->getrandom(rbytes, sizeof(rbytes), 0);
-  if (n < 0)
-    return -1;
+  /*
+   * Read entropy in a loop until the full buffer is filled.
+   *
+   * getrandom(2) may return fewer bytes than requested when the kernel
+   * entropy pool is not yet fully seeded (unlikely at normal runtime but
+   * possible early in boot).  Looping guarantees we always pass a full
+   * 32-byte entropy buffer to crypt_gensalt_ra regardless.
+   *
+   * explicit_bzero ensures no raw entropy bytes linger in memory after
+   * the salt string has been written to salt_buf.
+   */
+  {
+    size_t total = 0;
+    while (total < sizeof(rbytes)) {
+      ssize_t n = ops->getrandom(rbytes + total, sizeof(rbytes) - total, 0);
+      if (n < 0) {
+        explicit_bzero(rbytes, sizeof(rbytes));
+        return -1;
+      }
+      total += (size_t)n;
+    }
+  }
 
-  salt = ops->crypt_gensalt_ra(prefix, count, rbytes, (int)n);
+  salt = ops->crypt_gensalt_ra(prefix, count, rbytes, (int)sizeof(rbytes));
+  explicit_bzero(rbytes, sizeof(rbytes));
+
   if (!salt) {
     errno = EINVAL;
     return -1;
@@ -417,6 +460,7 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
   int fd;
   ssize_t written;
   size_t hash_len;
+  int saved_errno;
 
   if (!ops || !path || !hash) {
     errno = EINVAL;
@@ -436,19 +480,40 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
     return -1;
 
   /* Set permissions before writing any data */
-  if (ops->fchmod(fd, 0600) < 0)
-    goto fail;
+  if (ops->fchmod(fd, 0600) < 0) {
+    saved_errno = errno;
+    ops->close(fd);
+    ops->unlink(tmp_path);
+    errno = saved_errno;
+    return -1;
+  }
 
   hash_len = strlen(hash);
   written = ops->write(fd, hash, hash_len);
-  if (written < 0 || (size_t)written != hash_len)
-    goto fail;
-  written = ops->write(fd, "\n", 1);
-  if (written != 1)
-    goto fail;
+  if (written < 0 || (size_t)written != hash_len) {
+    saved_errno = errno;
+    ops->close(fd);
+    ops->unlink(tmp_path);
+    errno = saved_errno;
+    return -1;
+  }
 
-  if (ops->fsync(fd) < 0)
-    goto fail;
+  written = ops->write(fd, "\n", 1);
+  if (written != 1) {
+    saved_errno = errno;
+    ops->close(fd);
+    ops->unlink(tmp_path);
+    errno = saved_errno;
+    return -1;
+  }
+
+  if (ops->fsync(fd) < 0) {
+    saved_errno = errno;
+    ops->close(fd);
+    ops->unlink(tmp_path);
+    errno = saved_errno;
+    return -1;
+  }
 
   ops->close(fd);
 
@@ -472,12 +537,4 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
 #endif
 
   return 0;
-
-fail: {
-  int saved = errno;
-  ops->close(fd);
-  ops->unlink(tmp_path);
-  errno = saved;
-  return -1;
-}
 }
