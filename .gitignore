@@ -14,3 +14,6 @@ coverage.info
 coverage.info.cleaned
 *.profraw
 *.profdata
+*.gcno
+*.gcda
+_codeql_detected_source_root

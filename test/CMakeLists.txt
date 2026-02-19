@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.21)
 
 # ##############################################################################
 # Project / modules
@@ -179,18 +179,36 @@ if(BUILD_TESTING AND HAVE_COVERAGE_TOOLS)
       APPEND
       PROPERTY ADDITIONAL_CLEAN_FILES ${PROFILE_DATA})
 
+    # Extract first binary as the primary llvm-cov target; all others
+    # are passed as repeated -object flags (required by llvm-cov syntax).
+    list(GET UNIT_TEST_BINARIES 0 _llvm_cov_first_bin)
+    set(_llvm_cov_object_args "")
+    list(LENGTH UNIT_TEST_BINARIES _llvm_cov_num_bins)
+    if(_llvm_cov_num_bins GREATER 1)
+      list(SUBLIST UNIT_TEST_BINARIES 1 -1 _llvm_cov_remaining_bins)
+      foreach(_llvm_cov_bin ${_llvm_cov_remaining_bins})
+        list(APPEND _llvm_cov_object_args "-object" "${_llvm_cov_bin}")
+      endforeach()
+    endif()
+
     add_custom_target(
       coverage
-      COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=default.profraw
+      # Use %p so each test process writes its own profraw (avoids overwrite).
+      COMMAND ${CMAKE_COMMAND} -E env LLVM_PROFILE_FILE=default-%p.profraw
               ${CMAKE_CTEST_COMMAND} --output-on-failure
-      COMMAND ${LLVM_PROFDATA_EXEC} merge -sparse default.profraw -o
-              ${PROFILE_DATA}
+      # Merge all per-process profraw files into one profdata.
+      # Note: sh -c with shell glob is intentional — this project is Linux-only
+      # (PAM module), and cmake -E does not support file globbing.  Tests must
+      # run before this step so at least one default-*.profraw file exists.
+      COMMAND sh -c "${LLVM_PROFDATA_EXEC} merge -sparse default-*.profraw -o ${PROFILE_DATA}"
       COMMAND
-        ${LLVM_COV_EXEC} show ${UNIT_TEST_BINARIES}
+        ${LLVM_COV_EXEC} show ${_llvm_cov_first_bin}
         -instr-profile=${PROFILE_DATA} -format=html
         -output-dir=${COVERAGE_OUTPUT_DIR}
-      COMMAND ${LLVM_COV_EXEC} report ${UNIT_TEST_BINARIES}
+        ${_llvm_cov_object_args}
+      COMMAND ${LLVM_COV_EXEC} report ${_llvm_cov_first_bin}
               -instr-profile=${PROFILE_DATA} -show-region-summary=false
+              ${_llvm_cov_object_args}
       WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
       DEPENDS test_binaries
       COMMENT

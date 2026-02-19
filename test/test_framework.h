@@ -61,6 +61,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -116,6 +117,21 @@ static int _test_registry_count = 0;
       fprintf(stderr, "# FAIL: %s:%d\n", __FILE__, __LINE__);                  \
       fprintf(stderr, "#   Should not equal: %ld\n", _e);                      \
       fprintf(stderr, "#   Got:              %ld\n", _a);                      \
+      fprintf(stderr, "#   %s\n", msg);                                        \
+      exit(1);                                                                 \
+    }                                                                          \
+  } while (0)
+
+/* Pointer comparison using uintptr_t to allow safe numeric comparison of
+ * pointer values without truncation when sizeof(long) < sizeof(void *). */
+#define TEST_ASSERT_PTR_EQ(actual, expected, msg)                              \
+  do {                                                                         \
+    uintptr_t _a = (uintptr_t)(actual);                                        \
+    uintptr_t _e = (uintptr_t)(expected);                                      \
+    if (_a != _e) {                                                            \
+      fprintf(stderr, "# FAIL: %s:%d\n", __FILE__, __LINE__);                  \
+      fprintf(stderr, "#   Expected: %p\n", (void *)_e);                       \
+      fprintf(stderr, "#   Got:      %p\n", (void *)_a);                       \
       fprintf(stderr, "#   %s\n", msg);                                        \
       exit(1);                                                                 \
     }                                                                          \
@@ -208,7 +224,8 @@ static inline void _suppress_outputs(void) {
   }
 
   dup2(devnull, STDOUT_FILENO);
-  dup2(devnull, STDERR_FILENO);
+  /* stderr is intentionally preserved so TEST_ASSERT_* failure messages
+   * remain visible even when output suppression is active. */
   close(devnull);
 }
 

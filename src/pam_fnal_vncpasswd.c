@@ -108,8 +108,11 @@ static int parse_login_defs_line(char *line, const char *key,
   if (strlen(p) == 0)
     return 0;
 
-  if (snprintf(value_out, value_len, "%s", p) < 0)
-    return 0;
+  {
+    int _snret = snprintf(value_out, value_len, "%s", p);
+    if (_snret < 0 || (size_t)_snret >= value_len)
+      return 0;
+  }
 
   return 1;
 }
@@ -130,10 +133,13 @@ int get_encrypt_settings(const struct syscall_ops *ops,
   }
 
   /* Initialize with compiled-in defaults */
-  if (snprintf(settings->method, sizeof(settings->method),
-               "%s", DEFAULT_ENCRYPT_METHOD) < 0) {
-    errno = EINVAL;
-    return -1;
+  {
+    int _snret = snprintf(settings->method, sizeof(settings->method),
+                          "%s", DEFAULT_ENCRYPT_METHOD);
+    if (_snret < 0 || (size_t)_snret >= sizeof(settings->method)) {
+      errno = EINVAL;
+      return -1;
+    }
   }
   settings->yescrypt_cost = (unsigned long)DEFAULT_YESCRYPT_COST;
   settings->sha_rounds = (unsigned long)DEFAULT_SHA_CRYPT_ROUNDS;
@@ -147,9 +153,12 @@ int get_encrypt_settings(const struct syscall_ops *ops,
   while (ops->fgets(line, (int)sizeof(line), fp) != NULL) {
     if (!have_method &&
         parse_login_defs_line(line, "ENCRYPT_METHOD", value, sizeof(value))) {
-      if (snprintf(settings->method, sizeof(settings->method),
-                   "%s", value) > 0)
-        have_method = true;
+      {
+        int _snret = snprintf(settings->method, sizeof(settings->method),
+                              "%s", value);
+        if (_snret > 0 && (size_t)_snret < sizeof(settings->method))
+          have_method = true;
+      }
       continue;
     }
 
@@ -217,7 +226,8 @@ static int method_to_prefix(const char *method, char *prefix_out,
 
   for (int i = 0; methods[i].name != NULL; i++) {
     if (strcmp(method, methods[i].name) == 0) {
-      if (snprintf(prefix_out, prefix_len, "%s", methods[i].prefix) < 0)
+      int _snret = snprintf(prefix_out, prefix_len, "%s", methods[i].prefix);
+      if (_snret < 0 || (size_t)_snret >= prefix_len)
         return -1;
       return 0;
     }
@@ -272,10 +282,13 @@ int generate_salt(const struct syscall_ops *ops,
     return -1;
   }
 
-  if (snprintf(salt_buf, salt_len, "%s", salt) < 0) {
-    ops->free(salt);
-    errno = ERANGE;
-    return -1;
+  {
+    int _snret = snprintf(salt_buf, salt_len, "%s", salt);
+    if (_snret < 0 || (size_t)_snret >= salt_len) {
+      ops->free(salt);
+      errno = ERANGE;
+      return -1;
+    }
   }
 
   ops->free(salt);
@@ -312,11 +325,14 @@ int hash_password(const struct syscall_ops *ops, const char *password,
     return -1;
   }
 
-  if (snprintf(hash_buf, hash_len, "%s", result) < 0) {
-    explicit_bzero(salt, sizeof(salt));
-    explicit_bzero(&cd, sizeof(cd));
-    errno = ERANGE;
-    return -1;
+  {
+    int _snret = snprintf(hash_buf, hash_len, "%s", result);
+    if (_snret < 0 || (size_t)_snret >= hash_len) {
+      explicit_bzero(salt, sizeof(salt));
+      explicit_bzero(&cd, sizeof(cd));
+      errno = ERANGE;
+      return -1;
+    }
   }
 
   explicit_bzero(salt, sizeof(salt));
@@ -505,10 +521,13 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
     mlocked = true;
 
   if (file_override) {
-    if (snprintf(passwd_path, sizeof(passwd_path),
-                 "%s", file_override) < 0) {
-      ret = PAM_AUTH_ERR;
-      goto out;
+    {
+      int _snret = snprintf(passwd_path, sizeof(passwd_path),
+                            "%s", file_override);
+      if (_snret < 0 || (size_t)_snret >= sizeof(passwd_path)) {
+        ret = PAM_AUTH_ERR;
+        goto out;
+      }
     }
     fd = ops->open(passwd_path, O_RDONLY | O_NOFOLLOW);
     if (fd < 0) {
@@ -527,10 +546,13 @@ int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
       goto out;
     }
 
-    if (snprintf(passwd_path, sizeof(passwd_path), "%s/%s/%s",
-                 pw.pw_dir, VNC_PASSWD_DIR, VNC_PASSWD_FILE) < 0) {
-      ret = PAM_AUTH_ERR;
-      goto out;
+    {
+      int _snret = snprintf(passwd_path, sizeof(passwd_path), "%s/%s/%s",
+                            pw.pw_dir, VNC_PASSWD_DIR, VNC_PASSWD_FILE);
+      if (_snret < 0 || (size_t)_snret >= sizeof(passwd_path)) {
+        ret = PAM_AUTH_ERR;
+        goto out;
+      }
     }
 
     fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
@@ -575,9 +597,12 @@ int ensure_dir(const struct syscall_ops *ops, const char *path) {
    * This handles multi-segment VNC_PASSWD_DIR values like ".config/vnc"
    * without requiring the parent (~/.config) to already exist.
    */
-  if (snprintf(tmp, sizeof(tmp), "%s", path) < 0) {
-    errno = ERANGE;
-    return -1;
+  {
+    int _snret = snprintf(tmp, sizeof(tmp), "%s", path);
+    if (_snret < 0 || (size_t)_snret >= sizeof(tmp)) {
+      errno = ERANGE;
+      return -1;
+    }
   }
 
   for (p = tmp + 1; *p != '\0'; p++) {
@@ -632,9 +657,12 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
     return -1;
   }
 
-  if (snprintf(tmp_path, sizeof(tmp_path), "%s.XXXXXX", path) < 0) {
-    errno = ERANGE;
-    return -1;
+  {
+    int _snret = snprintf(tmp_path, sizeof(tmp_path), "%s.XXXXXX", path);
+    if (_snret < 0 || (size_t)_snret >= sizeof(tmp_path)) {
+      errno = ERANGE;
+      return -1;
+    }
   }
 
   fd = ops->mkstemp(tmp_path);
@@ -646,10 +674,10 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
     goto fail;
 
   hash_len = strlen(hash);
-  written = write(fd, hash, hash_len);
+  written = ops->write(fd, hash, hash_len);
   if (written < 0 || (size_t)written != hash_len)
     goto fail;
-  written = write(fd, "\n", 1);
+  written = ops->write(fd, "\n", 1);
   if (written != 1)
     goto fail;
 

@@ -13,12 +13,14 @@ if(ASCIIDOCTOR)
     OUTPUT ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
     COMMAND ${ASCIIDOCTOR} -b manpage -o ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
             ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
+    DEPENDS ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
     COMMENT "Building pam_fnal_vncpasswd manpage with asciidoctor"
     VERBATIM)
   add_custom_command(
     OUTPUT ${PROJECT_BINARY_DIR}/fnal-vncpasswd.1
     COMMAND ${ASCIIDOCTOR} -b manpage -o ${PROJECT_BINARY_DIR}/fnal-vncpasswd.1
             ${PROJECT_SOURCE_DIR}/docs/fnal-vncpasswd.1.adoc
+    DEPENDS ${PROJECT_SOURCE_DIR}/docs/fnal-vncpasswd.1.adoc
     COMMENT "Building fnal-vncpasswd manpage with asciidoctor"
     VERBATIM)
   add_custom_target(doc ALL DEPENDS ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
@@ -29,12 +31,14 @@ elseif(ASCIIDOC AND A2X)
     OUTPUT ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8
     COMMAND ${A2X} --doctype manpage --format manpage -D ${PROJECT_BINARY_DIR}
             ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
+    DEPENDS ${PROJECT_SOURCE_DIR}/docs/pam_fnal_vncpasswd.8.adoc
     COMMENT "Building pam_fnal_vncpasswd manpage with a2x"
     VERBATIM)
   add_custom_command(
     OUTPUT ${PROJECT_BINARY_DIR}/fnal-vncpasswd.1
     COMMAND ${A2X} --doctype manpage --format manpage -D ${PROJECT_BINARY_DIR}
             ${PROJECT_SOURCE_DIR}/docs/fnal-vncpasswd.1.adoc
+    DEPENDS ${PROJECT_SOURCE_DIR}/docs/fnal-vncpasswd.1.adoc
     COMMENT "Building fnal-vncpasswd manpage with a2x"
     VERBATIM)
   add_custom_target(doc ALL DEPENDS ${PROJECT_BINARY_DIR}/pam_fnal_vncpasswd.8

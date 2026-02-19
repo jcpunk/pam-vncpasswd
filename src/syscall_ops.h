@@ -85,6 +85,7 @@ struct syscall_ops {
   int (*fsync)(int fd);
   int (*rename)(const char *oldpath, const char *newpath);
   int (*unlink)(const char *pathname);
+  ssize_t (*write)(int fd, const void *buf, size_t count);
 
   /*
    * User database operations

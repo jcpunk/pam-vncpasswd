@@ -78,5 +78,6 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags,
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags,
                                  int argc, const char **argv) {
   (void)pamh; (void)flags; (void)argc; (void)argv;
-  return PAM_SUCCESS;
+  /* This module does not support password changes via PAM. */
+  return PAM_PERM_DENIED;
 }
