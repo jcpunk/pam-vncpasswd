@@ -1,0 +1,16 @@
+build/
+*.o
+*.so
+*.a
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.8
+*.1
+coverage/
+coverage.info
+coverage.info.cleaned
+*.profraw
+*.profdata

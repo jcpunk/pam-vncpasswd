@@ -1,0 +1,131 @@
+= fnal-vncpasswd(1)
+:doctype: manpage
+:manmanual: User Commands
+:mansource: pam-vncpasswd
+:man-linkstyle: pass:[blue R < >]
+
+== Name
+
+fnal-vncpasswd - Set VNC password for pam_vncpasswd authentication
+
+== Synopsis
+
+----
+fnal-vncpasswd [-f FILE] [-n] [-h] [-v]
+----
+
+== Description
+
+*fnal-vncpasswd* sets the per-user VNC password stored in
+`~/.vnc/passwd`.  This file is used by *pam_vncpasswd*(8) for
+Weston + NeatVNC authentication on RHEL10 and similar systems.
+
+The password is hashed using crypt(3) with the algorithm specified by
+*ENCRYPT_METHOD* in _/etc/login.defs_.  On modern RHEL/Fedora, this
+defaults to *yescrypt*, which uses *YESCRYPT_COST_FACTOR* for its cost
+parameter (default 5, giving N=32768).
+
+Unlike TigerVNC's *vncpasswd*, this tool stores a proper crypt(3) hash
+rather than an obfuscated 8-byte password.  The hash is readable by any
+standard crypt(3) implementation, including *openssl passwd* and Python's
+*crypt* module.
+
+== Options
+
+-f _FILE_::
+  Write the password hash to _FILE_ instead of the default
+  `~/.vnc/passwd`.  The directory containing _FILE_ must exist.
+
+-n::
+  Non-interactive mode.  Read the password from standard input
+  (a single line, no newline confirmation).  Useful for scripted
+  password changes.
+
+-h::
+  Show help and exit.
+
+-v::
+  Show version and exit.
+
+== Password File Format
+
+The password file contains a single line: the crypt(3) hash of the
+password.  Examples by algorithm:
+
+yescrypt (RHEL default)::
+  `$y$j9T$<salt>$<hash>`
+
+SHA-512::
+  `$6$rounds=65536$<salt>$<hash>`
+
+SHA-256::
+  `$5$rounds=65536$<salt>$<hash>`
+
+The algorithm-specific cost parameters are encoded differently:
+
+* **yescrypt**: cost encoded as a parameter string (e.g., `j9T` for
+  cost factor 5, `jFT` for cost factor 11) — read from
+  *YESCRYPT_COST_FACTOR* in _/etc/login.defs_.
+* **SHA-crypt**: cost encoded as `rounds=N$` — read from
+  *SHA_CRYPT_MAX_ROUNDS* in _/etc/login.defs_.
+* **bcrypt**: cost encoded as `log₂(rounds)` (always 12).
+
+== Security
+
+The password file is written atomically:
+
+1. A temporary file is created with *mkstemp*(3) in the same directory.
+2. Permissions are set to 0600 with *fchmod*(2) before any data is
+   written.
+3. The password hash is written and *fsync*(2)ed to disk.
+4. The temporary file is renamed into place with *rename*(2), which is
+   atomic on POSIX filesystems.
+
+Sensitive buffers (password, hash, salt) are cleared with
+*explicit_bzero*(3) before the program exits.
+
+== Files
+
+~/.vnc/::
+  VNC configuration directory.  Created with mode 0700 if it does not
+  exist.
+
+~/.vnc/passwd::
+  VNC password file.  Contains a single crypt(3) hash.  Mode 0600.
+
+/etc/login.defs::
+  Consulted for *ENCRYPT_METHOD*, *YESCRYPT_COST_FACTOR*, and
+  *SHA_CRYPT_MAX_ROUNDS*.
+
+== Examples
+
+Set VNC password interactively:
+----
+$ fnal-vncpasswd
+New VNC password:
+Confirm VNC password:
+VNC password updated successfully.
+----
+
+Set VNC password non-interactively (e.g., from Ansible):
+----
+$ echo 'MyVNCpassword' | fnal-vncpasswd -n
+----
+
+Set password for a specific file (e.g., a service account):
+----
+$ fnal-vncpasswd -f /etc/vnc/service-account.passwd
+----
+
+== Exit Status
+
+0:: Password was set successfully.
+1:: An error occurred (check stderr for details).
+
+== See Also
+
+*pam_vncpasswd*(8), *crypt*(3), *crypt_gensalt_ra*(3), *login.defs*(5)
+
+== Authors
+
+Written for the Fermi National Accelerator Laboratory.
