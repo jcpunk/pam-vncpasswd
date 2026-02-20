@@ -118,7 +118,6 @@ endif()
 
 set(MAX_PASSWORD_LENGTH 8) # RFB protocol limit is 8
 
-
 # ##############################################################################
 # Top Level Configuration Variables
 if(NOT DEFINED LOGIN_DEFS_PATH) # shadow-utils considers this file a private api

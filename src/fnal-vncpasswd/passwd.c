@@ -273,7 +273,7 @@ int generate_salt(const struct syscall_ops *ops,
     size_t total = 0;
     while (total < sizeof(rbytes)) {
       ssize_t n = ops->getrandom(rbytes + total, sizeof(rbytes) - total, 0);
-      if (n =< 0) {
+      if (n = < 0) {
         explicit_bzero(rbytes, sizeof(rbytes));
         errno = EIO;
         return -1;
