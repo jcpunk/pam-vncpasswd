@@ -6,15 +6,10 @@
  * The file is compatible with the pam_fnal_vncpasswd PAM module.
  *
  * USAGE:
- *   fnal-vncpasswd [-h] [-v]
- *
- * OPTIONS:
- *   -h   Show help
- *   -v   Show version
+ *   fnal-vncpasswd [-h|--help] [--version]
  *
  * SECURITY:
- * - Uses libxcrypt's compiled-in default algorithm (yescrypt on modern
- * systems)
+ * - Uses libxcrypt's compiled-in default algorithm
  * - Passes count=0 to crypt_gensalt_ra (libxcrypt algorithm defaults)
  * - Writes password file atomically via mkstemp + rename
  * - Sets file permissions 0600 before writing data
@@ -23,6 +18,7 @@
 
 #include <bsd/readpassphrase.h>
 #include <errno.h>
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -133,8 +129,8 @@ static void print_help(void) {
   (void)printf("\n");
   (void)printf("Set the VNC password used by pam_fnal_vncpasswd.\n");
   (void)printf("\n");
-  (void)printf("  -h   Show this help\n");
-  (void)printf("  -v   Show version\n");
+  (void)printf("  -h, --help       Show this help\n");
+  (void)printf("      --version    Show version\n");
 }
 
 int main(int argc, char *argv[]) {
@@ -143,12 +139,18 @@ int main(int argc, char *argv[]) {
   char password[VNC_MAX_PASSWORD_LENGTH] = {0};
   char hash[VNC_HASH_BUF_SIZE] = {0};
 
-  while ((opt = getopt(argc, argv, "hv")) != -1) {
+  static const struct option long_opts[] = {
+      {"help",    no_argument, NULL, 'h'},
+      {"version", no_argument, NULL, 1000},
+      {NULL, 0, NULL, 0}
+  };
+
+  while ((opt = getopt_long(argc, argv, "h", long_opts, NULL)) != -1) {
     switch (opt) {
     case 'h':
       print_help();
       exit(EXIT_SUCCESS);
-    case 'v':
+    case 1000: /* --version */
       (void)printf("%s %s\n", PACKAGE_NAME, PACKAGE_VERSION);
       exit(EXIT_SUCCESS);
     default:
