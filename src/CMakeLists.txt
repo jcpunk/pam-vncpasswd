@@ -10,34 +10,6 @@ include(GNUInstallDirs)
 # Build-time configuration
 # ##############################################################################
 
-set(LOGIN_DEFS_PATH
-    "/etc/login.defs"
-    CACHE STRING "Path to login.defs")
-set(DEFAULT_ENCRYPT_METHOD
-    "YESCRYPT"
-    CACHE STRING "Default encryption method if login.defs is absent")
-set(DEFAULT_YESCRYPT_COST
-    5
-    CACHE STRING "Default yescrypt cost factor")
-set(DEFAULT_SHA_CRYPT_ROUNDS
-    65536
-    CACHE STRING "Default SHA-crypt rounds")
-set(VNC_PASSWD_DIR
-    ".config/vnc"
-    CACHE STRING "VNC password subdirectory under user home")
-set(VNC_PASSWD_FILE
-    "fnal-vncpasswd"
-    CACHE STRING "VNC password filename")
-set(MAX_PASSWORD_LENGTH
-    8
-    CACHE STRING "Maximum VNC password length (RFB protocol limit)")
-set(MIN_PASSWORD_LENGTH
-    1
-    CACHE STRING "Minimum VNC password length")
-set(PAM_MODULE_DIR
-    "${CMAKE_INSTALL_LIBDIR}/security"
-    CACHE STRING "PAM module install directory")
-
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/autoconf.h.in"
                "${CMAKE_CURRENT_BINARY_DIR}/autoconf.h" @ONLY)
 
@@ -66,8 +38,7 @@ else()
 endif()
 
 # ##############################################################################
-# Subdirectories NOTE: PAM discovery (find_library/find_path for libpam) lives
-# in pam/CMakeLists.txt alongside the only target that needs it.
+# Subdirectories
 # ##############################################################################
 
 add_subdirectory(shared)

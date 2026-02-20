@@ -44,5 +44,7 @@ _Static_assert(MAX_PASSWORD_LENGTH == 8,
 
 /* Minimum password length enforced by fnal-vncpasswd */
 #define MIN_PASSWORD_LENGTH @MIN_PASSWORD_LENGTH@
+_Static_assert(MIN_PASSWORD_LENGTH >= 1 && MIN_PASSWORD_LENGTH <= MAX_PASSWORD_LENGTH,
+               "MIN_PASSWORD_LENGTH must be between 1 and MAX_PASSWORD_LENGTH");
 
 #endif /* PAM_FNAL_VNCPASSWD_AUTOCONF_H */

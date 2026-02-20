@@ -158,6 +158,8 @@ static ssize_t read_password_from_terminal(const char *prompt, char *buf,
         nread--;
       buf[nread] = '\0';
     }
+    if (nread >= 0)
+      buf[nread] = '\0';
   }
 
   /* Restore terminal and deregister signal handlers */

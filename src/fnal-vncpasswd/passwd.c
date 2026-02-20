@@ -273,8 +273,9 @@ int generate_salt(const struct syscall_ops *ops,
     size_t total = 0;
     while (total < sizeof(rbytes)) {
       ssize_t n = ops->getrandom(rbytes + total, sizeof(rbytes) - total, 0);
-      if (n < 0) {
+      if (n =< 0) {
         explicit_bzero(rbytes, sizeof(rbytes));
+        errno = EIO;
         return -1;
       }
       total += (size_t)n;
@@ -292,13 +293,13 @@ int generate_salt(const struct syscall_ops *ops,
   {
     int sn = snprintf(salt_buf, salt_len, "%s", salt);
     if (sn < 0 || (size_t)sn >= salt_len) {
-      ops->free(salt);
+      free(salt);
       errno = ERANGE;
       return -1;
     }
   }
 
-  ops->free(salt);
+  free(salt);
   return 0;
 }
 
@@ -511,7 +512,12 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
     return -1;
   }
 
-  ops->close(fd);
+  if (ops->close(fd) < 0) {
+    saved_errno = errno;
+    ops->unlink(tmp_path);
+    errno = saved_errno;
+    return -1;
+  }
 
   /*
    * rename(2) is SELinux-safe here because the temp file was created in

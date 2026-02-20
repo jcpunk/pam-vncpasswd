@@ -11,7 +11,7 @@
  * ALL SIX pam_sm_* ENTRY POINTS ARE REQUIRED.  Linux-PAM resolves them by
  * symbol name at dlopen time based on which service types appear in
  * /etc/pam.d/.  A missing symbol causes dlsym failure and breaks the entire
- * auth stack.  The PAM_SM_* defines above tell pam_modules.h to declare the
+ * auth stack.  The "pam_sm_*" defines above tell pam_modules.h to declare the
  * corresponding prototypes; omitting them for unused types would produce
  * implicit-declaration warnings while the stubs themselves must still exist.
  */

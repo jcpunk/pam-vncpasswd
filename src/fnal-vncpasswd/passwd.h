@@ -1,5 +1,6 @@
 /**
- * fnal-vncpasswd/passwd.h - VNC password management declarations for fnal-vncpasswd
+ * fnal-vncpasswd/passwd.h - VNC password management declarations for
+ * fnal-vncpasswd
  *
  * Declares the password hashing and file-management functions used by the
  * fnal-vncpasswd CLI tool.
@@ -24,8 +25,8 @@
  * - bcrypt: cost = log2(rounds) (e.g., 12)
  */
 
-#ifndef PASSWD_H
-#define PASSWD_H
+#ifndef FNAL_VNCPASSWD_PASSWD_H
+#define FNAL_VNCPASSWD_PASSWD_H
 
 #include <crypt.h>
 #include <stddef.h>
@@ -192,4 +193,4 @@ int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
  * they must not be included by the PAM module or shared library consumers.
  */
 
-#endif /* PASSWD_H */
+#endif /* FNAL_VNCPASSWD_PASSWD_H */

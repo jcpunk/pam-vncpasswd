@@ -14,7 +14,7 @@ add_executable(fnal-vncpasswd vncpasswd.c passwd.c)
 
 target_include_directories(fnal-vncpasswd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_compile_features(fnal-vncpasswd PRIVATE c_std_11)
+target_compile_features(fnal-vncpasswd PRIVATE c_std_23)
 target_compile_definitions(fnal-vncpasswd PRIVATE _GNU_SOURCE)
 
 target_link_libraries(fnal-vncpasswd PRIVATE vnc_shared selinux_dep)

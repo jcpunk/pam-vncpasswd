@@ -1,5 +1,6 @@
 /**
- * shared/syscall_ops.h - System call abstraction layer for dependency injection
+ * shared/syscall_ops.h - System call abstraction layer for dependency
+ * injection
  *
  * WHY THIS EXISTS:
  * Unit testing code that makes system calls is difficult because:
@@ -23,6 +24,7 @@
 #ifndef SYSCALL_OPS_H
 #define SYSCALL_OPS_H
 
+#include <crypt.h>
 #include <pwd.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -138,11 +140,7 @@ struct syscall_ops {
    *
    * crypt_gensalt_ra returns a heap-allocated string (caller must free).
    * crypt_r writes to the caller-provided crypt_data buffer (no alloc).
-   *
-   * struct crypt_data is defined in <crypt.h>.  Forward-declared here so
-   * this header remains self-contained without pulling in <crypt.h>.
    */
-  struct crypt_data;
   char *(*crypt_gensalt_ra)(const char *prefix, unsigned long count,
                             const char *rbytes, int nrbytes);
   char *(*crypt_r)(const char *phrase, const char *setting,
