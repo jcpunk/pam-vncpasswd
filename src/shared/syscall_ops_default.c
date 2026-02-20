@@ -97,12 +97,6 @@ const struct syscall_ops syscall_ops_default = {
     .crypt_r = crypt_r,
 
     /*
-     * Memory protection
-     */
-    .mlock = mlock,
-    .munlock = munlock,
-
-    /*
      * Memory management
      */
     .calloc = calloc,

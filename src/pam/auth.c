@@ -8,9 +8,15 @@
  * - O_NOFOLLOW + O_NONBLOCK + fstat() for TOCTOU-safe file access
  * - Constant-time XOR comparison to prevent timing attacks
  * - explicit_bzero() on all sensitive buffers
- * - mlock() to prevent password pages from being swapped to disk
  * - Session binding: supplied username must resolve to getuid() to prevent
  *   cross-user authentication into a foreign VNC session
+ *
+ * DEBUG LOGGING:
+ * - Enabled by the 'debug' PAM argument; always uses pam_syslog() at LOG_DEBUG
+ * - Never logs passwords, hashes, or raw file content
+ * - Username is not repeated in messages; Linux-PAM prefixes it automatically
+ * - All log sites are open-coded (if (debug && pamh) pam_syslog(...)) for
+ *   readability; no logging macros are used
  */
 
 #include "auth.h"
@@ -21,9 +27,9 @@
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include "autoconf.h"
@@ -32,22 +38,48 @@
 #include "vnc_path.h"
 
 /* ============================================================================
+ * Forward declarations for static functions
+ * ============================================================================
+ *
+ * We can use nonnull on static functions because they can only be called
+ * from inside here and we're careful to check the pointers in our visible
+ * function(s).
+ */
+
+static int validate_passwd_file(const struct syscall_ops *ops, const char *path,
+                                uid_t expected_uid)
+    __attribute__((nonnull(1, 2)));
+
+static int verify_password(const struct syscall_ops *ops, const char *password,
+                           const char *stored_hash)
+    __attribute__((nonnull(1, 2, 3)));
+
+static int open_and_read_passwd_hash(const struct syscall_ops *ops,
+                                     const pam_handle_t *pamh, int *ret_pam,
+                                     const char *username, char *hash_buf,
+                                     size_t hash_len, bool debug)
+    __attribute__((nonnull(1, 3, 4, 5)));
+
+static int vnc_const_memcmp(const void *a, const void *b, size_t len)
+    __attribute__((nonnull(1, 2)));
+
+/* ============================================================================
  * PAM Argument Parsing
  * ============================================================================
  */
-
 void parse_pam_args(int argc, const char **argv, struct pam_args *args) {
-  if (!args)
+  if (args == NULL) {
     return;
+  }
 
-  args->nullok = false;
-
+  /* Unknown args are silently ignored for forward compatibility */
   for (int i = 0; i < argc; i++) {
-    if (!argv[i])
+    if (argv[i] == NULL) {
       continue;
-    if (strcmp(argv[i], "nullok") == 0)
-      args->nullok = true;
-    /* Unknown args are silently ignored for forward compatibility */
+    }
+    if (strcmp(argv[i], "debug") == 0) {
+      args->debug = true;
+    }
   }
 }
 
@@ -56,16 +88,10 @@ void parse_pam_args(int argc, const char **argv, struct pam_args *args) {
  * ============================================================================
  */
 
-int validate_passwd_file(const struct syscall_ops *ops, const char *path,
-                         uid_t expected_uid) {
-  int fd;
-  int saved_errno;
+static int validate_passwd_file(const struct syscall_ops *ops, const char *path,
+                                uid_t expected_uid) {
   struct stat st;
-
-  if (!ops || !path) {
-    errno = EINVAL;
-    return -1;
-  }
+  int fd;
 
   /*
    * O_NOFOLLOW: refuse to open symlinks (prevents symlink-swap TOCTOU attack).
@@ -75,119 +101,30 @@ int validate_passwd_file(const struct syscall_ops *ops, const char *path,
    * FIFOs regardless, but we must not block before we can reach that check.
    */
   fd = ops->open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
-  if (fd < 0)
+  if (fd < 0) {
     return -1;
+  }
 
   if (ops->fstat(fd, &st) < 0) {
-    saved_errno = errno;
+    int saved_errno = errno;
     ops->close(fd);
     errno = saved_errno;
     return -1;
   }
 
-  if (!S_ISREG(st.st_mode)) {
-    ops->close(fd);
-    errno = EACCES;
-    return -1;
-  }
-
-  if (st.st_uid != expected_uid) {
-    ops->close(fd);
-    errno = EACCES;
-    return -1;
-  }
-
   /*
-   * Reject any executable bit or group/world read/write access.
-   * A password file has no business being executable by anyone, and must
-   * not be readable or writable by anyone other than the owning user.
+   * Reject non-regular files, wrong owner, any executable bit, or
+   * group/world read-write access.
    */
-  if (st.st_mode &
-      (S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH)) {
+  if (!S_ISREG(st.st_mode) || st.st_uid != expected_uid ||
+      (st.st_mode &
+       (S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IWOTH | S_IXOTH))) {
     ops->close(fd);
-    errno = EACCES;
+    errno = EPERM;
     return -1;
   }
 
   return fd;
-}
-
-int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
-                     size_t hash_len) {
-  FILE *fp;
-  char *result;
-  char *p;
-  size_t len;
-  int saved_errno;
-
-  /*
-   * Take unconditional ownership of fd on entry: every exit path below must
-   * release it exactly once, either via ops->close() (before fdopen) or via
-   * ops->fclose() (after fdopen, which transfers fd ownership to the stream).
-   *
-   * When ops is NULL we cannot call through the abstraction layer, so fall
-   * back to bare close(2).  This is the only branch where ops is unavailable;
-   * all subsequent ops calls below are safe.
-   */
-  if (!ops || !hash_buf || hash_len == 0) {
-    if (fd >= 0) {
-      if (ops)
-        ops->close(fd);
-      // LCOV_EXCL_START
-      else
-        /* should be impossible to get here */
-        close(fd);
-      // LCOV_EXCL_STOP
-    }
-    errno = EINVAL;
-    return -1;
-  }
-
-  /*
-   * Wrap the validated fd in a buffered FILE* for line reading.
-   * On failure, fdopen(3) does NOT close fd, so we must close it ourselves.
-   * On success, fd ownership transfers to fp; use only ops->fclose() from
-   * here.
-   */
-  fp = ops->fdopen(fd, "r");
-  if (!fp) {
-    saved_errno = errno;
-    ops->close(fd);
-    errno = saved_errno;
-    return -1;
-  }
-
-  result = ops->fgets(hash_buf, (int)hash_len, fp);
-  ops->fclose(fp); /* closes the underlying fd regardless of fgets result */
-
-  if (!result) {
-    errno = ENODATA;
-    return -1;
-  }
-
-  /*
-   * Guard against empty buffer before pointer arithmetic: without this,
-   * `hash_buf + strlen(hash_buf) - 1` underflows when the buffer is empty,
-   * producing undefined behaviour in the trimming loop below.
-   */
-  len = strlen(hash_buf);
-  if (len == 0) {
-    errno = ENODATA;
-    return -1;
-  }
-
-  /* Strip trailing CR, LF, and space; intentionally not isspace() to
-   * avoid locale-dependent matching on a crypt(3) hash string. */
-  p = hash_buf + len - 1;
-  while (p >= hash_buf && (*p == '\r' || *p == '\n' || *p == ' '))
-    *p-- = '\0';
-
-  if (*hash_buf == '\0') {
-    errno = ENODATA;
-    return -1;
-  }
-
-  return 0;
 }
 
 /* ============================================================================
@@ -195,66 +132,43 @@ int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
  * ============================================================================
  */
 
-int verify_password(const struct syscall_ops *ops, const char *password,
-                    const char *stored_hash) {
+#if defined(HAVE_OPENSSL) || defined(HAVE_LIBRESSL)
+#include <openssl/crypto.h>
+/* All both expose the same header and symbol */
+static int vnc_const_memcmp(const void *a, const void *b, size_t len) {
+  return CRYPTO_memcmp(a, b, len);
+}
+#elif defined(HAVE_GNUTLS)
+#include <gnutls/gnutls.h>
+static int vnc_const_memcmp(const void *a, const void *b, size_t len) {
+  return gnutls_memcmp(a, b, len);
+}
+#endif
+
+static int verify_password(const struct syscall_ops *ops, const char *password,
+                           const char *stored_hash) {
   struct crypt_data cd;
   char *computed;
-  unsigned char diff;
-  size_t i;
-  size_t computed_len;
-  size_t stored_len;
-
-  if (!ops || !password || !stored_hash) {
-    errno = EINVAL;
-    return -1;
-  }
+  int result;
 
   memset(&cd, 0, sizeof(cd));
   computed = ops->crypt_r(password, stored_hash, &cd);
   if (!computed || computed[0] == '*') {
     explicit_bzero(&cd, sizeof(cd));
     errno = EINVAL;
-    return -1;
+    return PAM_AUTH_ERR;
   }
 
-  /*
-   * Constant-time comparison using XOR accumulator.
-   *
-   * We iterate to max(computed_len, stored_len) rather than the minimum,
-   * using zero as a padding byte for the shorter string.  This ensures the
-   * loop runs for a fixed number of iterations regardless of how many
-   * characters match, preventing a length-based timing side-channel.
-   *
-   * Without this, iterating only to min() would leak whether the supplied
-   * password produced a hash of the same length as the stored one, giving
-   * an attacker partial information about the stored hash format or algorithm.
-   */
-  computed_len = strlen(computed);
-  stored_len = strlen(stored_hash);
-  diff = (unsigned char)(computed_len != stored_len);
+  /* compared with a crypto safe method */
+  result = vnc_const_memcmp(computed, stored_hash, VNC_HASH_BUF_SIZE);
 
-  {
-    size_t max_len = computed_len;
-    if (stored_len > max_len)
-      max_len = stored_len;
-    for (i = 0; i < max_len; i++) {
-      unsigned char c = 0;
-      unsigned char s = 0;
-      if (i < computed_len)
-        c = (unsigned char)computed[i];
-      if (i < stored_len)
-        s = (unsigned char)stored_hash[i];
-      diff |= c ^ s;
-    }
-  }
-
+  /* computed points into cd.output; explicit_bzero(&cd) covers it */
   explicit_bzero(&cd, sizeof(cd));
-  if (diff == 0) {
-    return 0;
-  } else {
-    errno = EINVAL;
-    return -1;
+  if (result == 0) {
+    return PAM_SUCCESS;
   }
+  errno = EINVAL;
+  return PAM_AUTH_ERR;
 }
 
 /* ============================================================================
@@ -263,146 +177,197 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  */
 
 /*
- * open_passwd_file - resolve the per-user password file path and return an
- * open fd.
+ * open_and_read_passwd_hash - resolve, open, validate, and read the per-user
+ * VNC password file into hash_buf, or return -1 with *ret_pam set on failure.
  *
- * Extracted from authenticate_vnc_user() to keep error handling flat without
- * requiring goto.  Returns an open fd on success, -1 on failure.
- * On failure, *ret_pam is set to the appropriate PAM return code.
+ * Session binding: the resolved pw_uid must equal getuid(). This module runs
+ * inside a process owned by the session user; accepting a username that
+ * resolves to a different uid would let an attacker authenticate into a
+ * foreign session using credentials they control.
  *
- * Session binding: the resolved pw.pw_uid must equal getuid().  This module
- * is loaded into a neatvnc/weston process running as the session user, so
- * getuid() is the session owner.  Accepting a username that resolves to a
- * different uid would allow an attacker to authenticate into a foreign session
- * using credentials they control.  See authenticate_vnc_user() in auth.h for
- * the full architectural constraint.
+ * getuid() (real uid) is used rather than geteuid() so that any temporarily
+ * elevated effective uid does not widen the acceptable identity set.
  */
-static int open_passwd_file(const struct syscall_ops *ops, const char *username,
-                            bool nullok, int *ret_pam) {
+static int open_and_read_passwd_hash(const struct syscall_ops *ops,
+                                     const pam_handle_t *pamh, int *ret_pam,
+                                     const char *username, char *hash_buf,
+                                     size_t hash_len, bool debug) {
+  struct passwd pw, *pwresult;
+  char pwbuf[4096]; /* conventional fixed size; see pam_unix and glibc docs */
   char passwd_path[PATH_MAX];
-  struct passwd pw;
-  struct passwd *pwresult;
-  /*
-   * Buffer for getpwnam_r string fields (home dir, shell, GECOS, etc.).
-   * PATH_MAX is wrong here: this is not a single path but the aggregate of
-   * all passwd string fields.  sysconf(_SC_GETPW_R_SIZE_MAX) is the correct
-   * runtime query but returns -1 on Linux (indeterminate), requiring a heap
-   * fallback that adds allocation complexity for no practical gain.  4096 is
-   * the conventional portable fixed size used by glibc's own documentation
-   * and pam_unix; it is sufficient for all realistic passwd entries.
-   */
-  char pwbuf[4096];
-  int fd;
+  FILE *fp;
+  size_t len;
+  int fd, saved_errno;
 
-  if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
-      pwresult == NULL) {
-    /*
-     * USER ENUMERATION NOTE:
-     * PAM_USER_UNKNOWN is intentional here (not PAM_AUTH_ERR).  This is
-     * standard PAM module behaviour (cf. pam_unix) and lets PAM stacks use
-     * pam_succeed_if/pam_listfile to gate access early.  An attacker who can
-     * enumerate system users via other means (getent, LDAP, SSH banners)
-     * gains no additional information from this return code.  If concealment
-     * is required, wrap the auth stack with pam_faildelay.
-     */
-    *ret_pam = PAM_USER_UNKNOWN;
-    return -1;
-  }
-
-  /*
-   * Session binding: reject any username that does not resolve to the uid of
-   * the calling process.  The neatvnc/weston compositor runs as the session
-   * owner, so getuid() is that owner's uid.  Without this check, an attacker
-   * could supply a different username (one whose ~/.vnc/passwd they know) and
-   * authenticate successfully into a foreign session.
-   *
-   * getuid() (real uid) is used rather than geteuid() (effective uid) because
-   * we want the identity of the session owner, not any temporarily elevated
-   * privilege the process may hold.
-   */
-  if (pw.pw_uid != getuid()) {
+  if (hash_len == 0) {
+    errno = EINVAL;
     *ret_pam = PAM_AUTH_ERR;
     return -1;
   }
 
-  if (!pw.pw_dir || pw.pw_dir[0] == '\0') {
+  if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
+      !pwresult) {
+    /*
+     * PAM_USER_UNKNOWN rather than PAM_AUTH_ERR is standard behaviour
+     * (cf. pam_unix): it lets stacked modules gate access early without
+     * leaking information beyond what getent/LDAP/SSH banners already show
+     */
+    if (debug && pamh) {
+      saved_errno = errno;
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: getpwnam_r: user not found");
+      errno = saved_errno;
+    }
+    *ret_pam = PAM_USER_UNKNOWN;
+    return -1;
+  }
+  if (debug && pamh) {
+    pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+               "pam_fnal_vncpasswd: getpwnam_r: resolved uid=%lu",
+               (unsigned long)pw.pw_uid);
+  }
+
+  if (pw.pw_uid != getuid()) {
+    if (debug && pamh) {
+      saved_errno = errno;
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: session binding failed: "
+                 "resolved uid=%lu != process uid=%lu",
+                 (unsigned long)pw.pw_uid, (unsigned long)getuid());
+      errno = saved_errno;
+    }
+    *ret_pam = PAM_AUTH_ERR;
+    return -1;
+  }
+
+  /* for our purposes "/" is also an invalid homdir */
+  if (!pw.pw_dir || pw.pw_dir[0] == '\0' || pw.pw_dir[0] != "/" ||
+      (pw.pw_dir[0] == "/" && pw.pw_dir[1] == '\0')) {
+    if (debug && pamh) {
+      saved_errno = errno;
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: no home directory in passwd entry");
+      errno = saved_errno;
+    }
     *ret_pam = PAM_USER_UNKNOWN;
     return -1;
   }
 
   if (build_vnc_passwd_path(pw.pw_dir, passwd_path, sizeof(passwd_path)) < 0) {
+    if (debug && pamh) {
+      saved_errno = errno;
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: build_vnc_passwd_path failed: errno=%d",
+                 saved_errno);
+      errno = saved_errno;
+    }
     *ret_pam = PAM_AUTH_ERR;
     return -1;
   }
 
   fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
   if (fd < 0) {
-    if (errno == ENOENT && nullok) {
-      *ret_pam = PAM_SUCCESS;
-    } else {
-      *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    if (debug && pamh) {
+      saved_errno = errno;
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: password file validation failed: "
+                 "errno=%d",
+                 saved_errno);
+      errno = saved_errno;
     }
+    *ret_pam = PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
 
-  return fd;
-}
-
-int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
-                          const char *password, bool nullok) {
-  char hash[VNC_HASH_BUF_SIZE];
-  bool mlocked = false;
-  int pam_err = PAM_AUTH_ERR;
-  int fd;
-  int result;
-
-  if (!ops || !username || !password)
-    return PAM_AUTH_ERR;
-
-  /*
-   * No password length check here — a password too long to have been set by
-   * fnal-vncpasswd (> MAX_PASSWORD_LENGTH) is treated as a wrong password.
-   * crypt_r() will produce a different hash and verify_password() will return
-   * -1.  Policy decisions belong in the password-setting tool, not here.
-   *
-   * mlock() is called before path resolution so the password is locked in RAM
-   * for the entire duration of authentication.
-   */
-  if (ops->mlock(password, strlen(password) + 1) == 0)
-    mlocked = true;
-
-  fd = open_passwd_file(ops, username, nullok, &pam_err);
-  if (fd < 0) {
-    if (mlocked)
-      ops->munlock(password, strlen(password) + 1);
-    return pam_err;
+  if (debug && pamh) {
+    pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+               "pam_fnal_vncpasswd: password file opened and validated");
   }
 
   /*
-   * Transfer fd ownership to read_passwd_hash before the call.
-   *
-   * read_passwd_hash always closes fd (via fdopen + fclose) whether it
-   * succeeds or fails.  Zeroing our local copy first ensures we never attempt
-   * a second close on the same descriptor.
+   * fdopen transfers fd ownership to fp on success.
+   * On failure, fdopen does NOT close fd, so we close it ourselves.
    */
-  {
-    int consumed_fd = fd;
-    fd = -1;
-    if (read_passwd_hash(ops, consumed_fd, hash, sizeof(hash)) < 0) {
-      explicit_bzero(hash, sizeof(hash));
-      if (mlocked)
-        ops->munlock(password, strlen(password) + 1);
-      return PAM_AUTHINFO_UNAVAIL;
+  fp = ops->fdopen(fd, "r");
+  if (fp == NULL) {
+    int saved_errno = errno;
+    ops->close(fd);
+    errno = saved_errno;
+    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    return -1;
+  }
+
+  if (ops->fgets(hash_buf, (int)hash_len, fp) == NULL) {
+    ops->fclose(fp);
+    errno = ENODATA;
+    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    return -1;
+  }
+  ops->fclose(fp);
+
+  /* Strip trailing CR, LF, and space.  Intentionally not isspace() to
+   * avoid locale-dependent matching on a crypt(3) hash string. */
+  len = strlen(hash_buf);
+  while (len > 0 && (hash_buf[len - 1] == '\r' || hash_buf[len - 1] == '\n' ||
+                     hash_buf[len - 1] == ' ')) {
+    hash_buf[--len] = '\0';
+  }
+
+  if (hash_buf[0] == '\0') {
+    errno = ENODATA;
+    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    return -1;
+  }
+
+  if (debug && pamh) {
+    pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+               "pam_fnal_vncpasswd: stored hash read successfully");
+  }
+
+  return 0;
+}
+
+int authenticate_vnc_user(const struct syscall_ops *ops,
+                          const pam_handle_t *pamh, const char *username,
+                          const char *password, bool debug) {
+  char hash[VNC_HASH_BUF_SIZE] = {0};
+  int result;
+
+  if (ops == NULL || pamh == NULL || username == NULL || password == NULL) {
+    errno = EINVAL;
+    return PAM_AUTH_ERR;
+  }
+
+  /* need to pass at least something in - obviously "" is invalid*/
+  if (username[0] == '\0' || password[0] == '\0') {
+    errno = EINVAL;
+    return PAM_AUTH_ERR;
+  }
+
+  /*
+   * No password length check required: a password too long to have been
+   * set by fnal-vncpasswd will produce a mismatched hash and fail naturally.
+   *
+   * Policy belongs in the password-setting tool, not here!
+   */
+  if (open_and_read_passwd_hash(ops, pamh, &result, username, hash,
+                                sizeof(hash), debug) < 0) {
+    explicit_bzero(hash, sizeof(hash));
+    return result;
+  }
+
+  result = verify_password(ops, password, hash) == 0;
+  explicit_bzero(hash, sizeof(hash));
+
+  if (debug && pamh) {
+    if (result == PAM_SUCCESS) {
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: password verification: success");
+    } else {
+      pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+                 "pam_fnal_vncpasswd: password verification: failed");
     }
   }
 
-  if (verify_password(ops, password, hash) == 0) {
-    result = PAM_SUCCESS;
-  } else {
-    result = PAM_AUTH_ERR;
-  }
-  explicit_bzero(hash, sizeof(hash));
-  if (mlocked)
-    ops->munlock(password, strlen(password) + 1);
   return result;
 }

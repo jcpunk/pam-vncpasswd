@@ -18,4 +18,6 @@
  */
 enum { VNC_HASH_BUF_SIZE = CRYPT_OUTPUT_SIZE };
 
+_Static_assert(VNC_HASH_BUF_SIZE <= INT_MAX, "hash buffer exceeds fgets limit!");
+
 #endif /* VNC_CRYPTO_H */

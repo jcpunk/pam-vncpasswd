@@ -4,7 +4,7 @@
  *
  * WHY THIS EXISTS:
  * Unit testing code that makes system calls is difficult because:
- * - Tests require root privileges (file ownership checks, mlock)
+ * - Tests require root privileges (file ownership checks, etc)
  * - Tests have side effects (creating files, modifying directories)
  * - Tests depend on system state (existing users, file permissions)
  * - Cryptographic operations use real entropy in production
@@ -145,18 +145,6 @@ struct syscall_ops {
                             const char *rbytes, int nrbytes);
   char *(*crypt_r)(const char *phrase, const char *setting,
                    struct crypt_data *data);
-
-  /*
-   * Memory protection
-   *
-   * WHY WE NEED THESE:
-   * Plaintext passwords should be locked in RAM to prevent them from
-   * being swapped to disk where they could be recovered later.
-   * mlock failure is non-fatal; auth should continue regardless.
-   * Tests verify that mlock failure doesn't abort authentication.
-   */
-  int (*mlock)(const void *addr, size_t len);
-  int (*munlock)(const void *addr, size_t len);
 
   /*
    * Memory management

@@ -2,8 +2,10 @@
  * pam/auth.h - PAM VNC authentication core declarations
  *
  * WHAT BELONGS HERE:
- * Password file validation, hash reading, password verification, PAM argument
- * parsing, and the authenticate_vnc_user() entry point.
+ * PAM argument parsing and the authenticate_vnc_user() entry point.
+ *
+ * Password file validation, hash reading, and password verification are
+ * internal implementation details of auth.c.
  */
 
 #ifndef AUTH_H
@@ -30,7 +32,7 @@
  * struct pam_args - Parsed PAM module arguments
  */
 struct pam_args {
-  bool nullok; /* 'nullok': missing password file passes auth */
+  bool debug; /* 'debug':  log non-sensitive decision points via syslog */
 };
 
 /* ============================================================================
@@ -39,76 +41,31 @@ struct pam_args {
  */
 
 /**
+ * make_pam_args - Construct a pam_args struct with defaults applied
+ *
+ * Returns an initialized pam_args with all fields set to their defaults.
+ */
+struct pam_args make_pam_args(void);
+struct pam_args make_pam_args(void) {
+  return (struct pam_args){
+      .debug = false,
+  };
+}
+
+/**
  * parse_pam_args - Parse PAM module arguments
  * @argc: Argument count from pam_sm_authenticate
  * @argv: Argument vector from pam_sm_authenticate
  * @args: Output: filled with parsed argument values
  *
  * Recognized arguments:
- *   nullok   Allow missing password file (auth passes)
+ *   debug    Emit non-sensitive decision-point messages via pam_syslog(3)
+ *            at LOG_DEBUG.
+ *            No passwords, hashes, or raw file contents are ever logged.
  *
  * Unknown arguments are silently ignored for forward compatibility.
  */
 void parse_pam_args(int argc, const char **argv, struct pam_args *args);
-
-/* ============================================================================
- * Password File Operations
- * ============================================================================
- */
-
-/**
- * validate_passwd_file - TOCTOU-safe password file validation
- * @ops:          Syscall operations (open, fstat, close)
- * @path:         Path to the password file
- * @expected_uid: UID that must own the file
- *
- * Opens with O_NOFOLLOW | O_NONBLOCK (prevents symlink attacks and FIFO
- * blocking), then fstat() verifies:
- *   - Regular file (rejects FIFOs, symlinks, devices)
- *   - Owned by expected_uid
- *   - Mode 0600 or stricter (no group/world read or write bits)
- *
- * Returns: open fd on success (caller must close), -1 on failure (errno set)
- */
-int validate_passwd_file(const struct syscall_ops *ops, const char *path,
-                         uid_t expected_uid);
-
-/**
- * read_passwd_hash - Read the stored hash from a validated password file fd
- * @ops:      Syscall operations (fdopen, fgets, fclose)
- * @fd:       Open file descriptor from validate_passwd_file; consumed here
- * @hash_buf: Output buffer for the stored hash string
- * @hash_len: Size of hash_buf; VNC_HASH_BUF_SIZE is always sufficient
- *
- * fd ownership is transferred unconditionally; the caller must not close it.
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int read_passwd_hash(const struct syscall_ops *ops, int fd, char *hash_buf,
-                     size_t hash_len);
-
-/* ============================================================================
- * Password Verification
- * ============================================================================
- */
-
-/**
- * verify_password - Constant-time password verification
- * @ops:         Syscall operations (crypt_r)
- * @password:    Plaintext password to verify
- * @stored_hash: Complete crypt(3) hash string from the password file
- *
- * Hashes password against stored_hash using crypt_r (the stored hash encodes
- * the algorithm and salt), then compares using a constant-time XOR accumulator
- * to prevent timing attacks.
- *
- * Iterates to max(computed_len, stored_len), padding the shorter string with
- * zero bytes, to prevent a length-based timing side-channel.
- *
- * Returns: 0 if password matches, -1 if mismatch or error (errno set)
- */
-int verify_password(const struct syscall_ops *ops, const char *password,
-                    const char *stored_hash);
 
 /* ============================================================================
  * Core Authentication Logic
@@ -118,9 +75,11 @@ int verify_password(const struct syscall_ops *ops, const char *password,
 /**
  * authenticate_vnc_user - Core authentication entry point
  * @ops:      Syscall operations
+ * @pamh:     PAM handle used for debug logging via pam_syslog(3); may be NULL
+ *            When NULL, debug messages are suppressed regardless of @debug.
  * @username: PAM username (from pam_get_user)
  * @password: Supplied password (from pam_get_authtok)
- * @nullok:   If true, a missing password file returns PAM_SUCCESS
+ * @debug:    If true, emit non-sensitive decision-point messages at LOG_DEBUG
  *
  * ARCHITECTURAL CONSTRAINT — SESSION BINDING:
  * This module is designed to be loaded exclusively into a single-user VNC
@@ -140,21 +99,34 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  *
  * This module must NOT be deployed in a multi-user PAM service (e.g. sshd,
  * login) where the authenticating process runs as root; getuid() == 0 in that
- * context and the uid binding check would incorrectly reject all users.
+ * context and the uid binding check would reject all users.
  *
  * Authentication sequence:
- *   1. mlock() password buffer in RAM (non-fatal if it fails)
- *   2. Look up home directory via getpwnam_r
- *   3. Reject if resolved uid != getuid() (session binding)
- *   4. Build canonical path via build_vnc_passwd_path()
- *   5. Open and validate the password file (TOCTOU-safe)
- *   6. Read stored hash from file
- *   7. Verify password (constant-time comparison)
- *   8. explicit_bzero() all sensitive buffers
+ *   1. Look up home directory via getpwnam_r
+ *   2. Reject if resolved uid != getuid() (session binding)
+ *   3. Build canonical path via build_vnc_passwd_path()
+ *   4. Open and validate the password file (TOCTOU-safe)
+ *   5. Read stored hash from file
+ *   6. Verify password (constant-time comparison)
+ *   7. explicit_bzero() all sensitive buffers
+ *
+ * Debug messages (emitted only when @debug && @pamh != NULL):
+ *   - getpwnam_r outcome (uid logged, not username; see NOTE below)
+ *   - Session binding check result
+ *   - Password file open/validation outcome (errno logged on failure)
+ *   - Hash read outcome
+ *   - Final verify result (success or failure only; no hash or password)
+ *
+ * NOTE — username in logs:
+ *   pam_syslog() prepends the PAM service, the calling process, and (on
+ *   Linux-PAM) the username that was passed to pam_start().  We therefore
+ *   do not repeat the username in our own debug messages to avoid redundancy
+ *   and to keep the logging surface minimal.
  *
  * Returns: PAM return code (PAM_SUCCESS, PAM_AUTH_ERR, PAM_USER_UNKNOWN, etc.)
  */
-int authenticate_vnc_user(const struct syscall_ops *ops, const char *username,
-                          const char *password, bool nullok);
+int authenticate_vnc_user(const struct syscall_ops *ops,
+                          const pam_handle_t *pamh, const char *username,
+                          const char *password, bool debug);
 
 #endif /* AUTH_H */
