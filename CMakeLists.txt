@@ -132,50 +132,24 @@ if(NOT DEFINED DEFAULT_ENCRYPT_METHOD)
       CACHE STRING "Default encrypt method if login.defs does not specify")
 endif()
 
-if(NOT DEFINED DEFAULT_YESCRYPT_COST)
-  set(DEFAULT_YESCRYPT_COST
-      7
-      CACHE STRING "Default yescrypt cost factor (YESCRYPT_COST_FACTOR)")
-endif()
-
-if(NOT DEFINED DEFAULT_SHA_CRYPT_ROUNDS)
-  set(DEFAULT_SHA_CRYPT_ROUNDS
-      131071
-      CACHE STRING "Default SHA-crypt rounds (SHA_CRYPT_MAX_ROUNDS)")
-endif()
-
-if(NOT DEFINED MIN_PASSWORD_LENGTH)
-  set(MIN_PASSWORD_LENGTH
+if(NOT DEFINED VNC_MIN_PASSWORD_LENGTH)
+  set(VNC_MIN_PASSWORD_LENGTH
       6
       CACHE STRING "Minimum password length enforced by fnal-vncpasswd")
 endif()
 
 # ##############################################################################
 # Validate Configuration
-if(NOT DEFAULT_YESCRYPT_COST MATCHES "^[0-9]+$")
+if(NOT VNC_MIN_PASSWORD_LENGTH MATCHES "^[0-8]+$")
   message(
     FATAL_ERROR
-      "DEFAULT_YESCRYPT_COST must be a non-negative integer (got: '${DEFAULT_YESCRYPT_COST}')"
+      "VNC_MIN_PASSWORD_LENGTH must be a non-negative integer (got: '${VNC_MIN_PASSWORD_LENGTH}')"
   )
 endif()
 
-if(NOT DEFAULT_SHA_CRYPT_ROUNDS MATCHES "^[0-9]+$")
-  message(
-    FATAL_ERROR
-      "DEFAULT_SHA_CRYPT_ROUNDS must be a non-negative integer (got: '${DEFAULT_SHA_CRYPT_ROUNDS}')"
-  )
-endif()
-
-if(NOT MIN_PASSWORD_LENGTH MATCHES "^[0-9]+$")
-  message(
-    FATAL_ERROR
-      "MIN_PASSWORD_LENGTH must be a non-negative integer (got: '${MIN_PASSWORD_LENGTH}')"
-  )
-endif()
-
-if(NOT MAX_PASSWORD_LENGTH EQUAL 8)
-  message(FATAL_ERROR "MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
-                      "Got: ${MAX_PASSWORD_LENGTH}")
+if(NOT VNC_MAX_PASSWORD_LENGTH EQUAL 8)
+  message(FATAL_ERROR "VNC_MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
+                      "Got: ${VNC_MAX_PASSWORD_LENGTH}")
 endif()
 
 # ##############################################################################
@@ -189,11 +163,8 @@ include(test/CMakeLists.txt)
 message(STATUS "${CMAKE_PROJECT_NAME} - ${VERSION}")
 message(STATUS "Compile Time Configuration:")
 message(STATUS "  LOGIN_DEFS_PATH           = ${LOGIN_DEFS_PATH}")
-message(STATUS "  DEFAULT_ENCRYPT_METHOD    = ${DEFAULT_ENCRYPT_METHOD}")
-message(STATUS "  DEFAULT_YESCRYPT_COST     = ${DEFAULT_YESCRYPT_COST}")
-message(STATUS "  DEFAULT_SHA_CRYPT_ROUNDS  = ${DEFAULT_SHA_CRYPT_ROUNDS}")
 message(STATUS "  VNC_PASSWD_DIR            = ${VNC_PASSWD_DIR}")
 message(STATUS "  VNC_PASSWD_FILE           = ${VNC_PASSWD_FILE}")
-message(STATUS "  MAX_PASSWORD_LENGTH       = ${MAX_PASSWORD_LENGTH}")
-message(STATUS "  MIN_PASSWORD_LENGTH       = ${MIN_PASSWORD_LENGTH}")
+message(STATUS "  VNC_MAX_PASSWORD_LENGTH   = ${VNC_MAX_PASSWORD_LENGTH}")
+message(STATUS "  VNC_MIN_PASSWORD_LENGTH   = ${VNC_MIN_PASSWORD_LENGTH}")
 message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")

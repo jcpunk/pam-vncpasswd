@@ -1,28 +1,16 @@
 /**
- * fnal-vncpasswd/passwd.h - VNC password management declarations for
- * fnal-vncpasswd
+ * fnal-vncpasswd/passwd.h - VNC password file operations
  *
- * Declares the password hashing and file-management functions used by the
- * fnal-vncpasswd CLI tool.
+ * Declares the testable core: algorithm selection, hashing, directory
+ * creation, and atomic file write.  Terminal I/O and argument parsing
+ * are private to main.c and are not declared here.
  *
- * WHAT BELONGS HERE:
- * Functions that are part of setting a VNC password: reading encryption
- * policy from login.defs, hashing a plaintext password, creating the
- * password file directory, writing the hash atomically, and reading a
- * password interactively or from stdin.
- *
- * WHAT DOES NOT BELONG HERE:
- * Password verification and file reading for authentication are exclusive
- * to the PAM module and live in pam/auth.h.
- *
- * YESCRYPT SUPPORT:
- * yescrypt is the default ENCRYPT_METHOD on modern RHEL/Fedora.
- * It uses a fundamentally different cost encoding from SHA-crypt:
- * - SHA-512/SHA-256: cost = number of rounds (e.g., 65536), embedded as
- *   "rounds=N$" in the salt string
- * - yescrypt: cost = cost factor (e.g., 5), encoded by crypt_gensalt_ra
- *   as a parameter string (e.g., "j9T"), NOT "rounds=N"
- * - bcrypt: cost = log2(rounds) (e.g., 12)
+ * COST PARAMETERS:
+ * crypt_gensalt_ra(prefix, 0, ...) selects libxcrypt's compiled-in
+ * defaults for each algorithm.  These match the values shadow-utils
+ * applies when YESCRYPT_COST_FACTOR / SHA_CRYPT_MAX_ROUNDS are absent
+ * from login.defs, so there is no need to re-parse those directives here.
+ * ENCRYPT_METHOD is still honoured via get_crypt_prefix().
  */
 
 #ifndef FNAL_VNCPASSWD_PASSWD_H
@@ -33,164 +21,118 @@
 
 #include "syscall_ops.h"
 #include "vnc_crypto.h"
-#include "vnc_path.h"
 
 /* ============================================================================
- * Constants
+ * Password file path resolution
  * ============================================================================
  */
 
 /**
- * ENCRYPT_METHOD_MAX - Maximum length of an encrypt method string
- */
-enum { ENCRYPT_METHOD_MAX = 64 };
-
-/**
- * SALT_BUF_SIZE - Buffer for generated salt string
+ * get_passwd_path - Build the VNC password file path for a given UID
+ * @ops:    Syscall operations (getpwuid_r, lstat, mkdir)
+ * @uid:    UID to look up; callers pass getuid()
+ * @buf:    Output buffer; PATH_MAX bytes is always sufficient
+ * @buflen: Size of @buf
  *
- * CRYPT_GENSALT_OUTPUT_SIZE (192) from <crypt.h> is the maximum length
- * of any salt string returned by crypt_gensalt_ra.
+ * Looks up the home directory for @uid via getpwuid_r, creates the VNC
+ * configuration directory if absent, then constructs the full password
+ * file path.
+ *
+ * Returns: 0 on success, -1 on error (errno set)
  */
-enum { SALT_BUF_SIZE = CRYPT_GENSALT_OUTPUT_SIZE };
-
-/**
- * LOGIN_DEFS_LINE_MAX - Maximum line length in login.defs
- */
-enum { LOGIN_DEFS_LINE_MAX = 1024 };
+int get_passwd_path(const struct syscall_ops *ops, uid_t uid, char *buf,
+                    size_t buflen);
 
 /* ============================================================================
- * Structures
+ * Algorithm selection
  * ============================================================================
  */
 
 /**
- * struct encrypt_settings - Parsed encryption settings from login.defs
+ * get_crypt_prefix - Resolve crypt(3) algorithm prefix from login.defs
+ * @ops:             Syscall operations (fopen, fgets, fclose)
+ * @login_defs_path: Path to login.defs (typically LOGIN_DEFS_PATH)
+ * @out:             Output buffer; 16 bytes is always sufficient
+ * @outlen:          Size of @out
  *
- * WHY TWO COST FIELDS:
- * SHA-crypt and yescrypt use fundamentally different cost metrics:
- * - sha_rounds: number of hash iterations (65536 is a good default)
- * - yescrypt_cost: cost factor N (5 is the shadow-utils default,
- *   maps to N=32768, r=32, p=1 via crypt_gensalt_ra)
- * These are kept separate to avoid confusion between the two scales.
+ * Reads ENCRYPT_METHOD from @login_defs_path and maps it to the
+ * corresponding crypt(3) prefix string.  Falls back to "$y$" (yescrypt)
+ * if the file is missing or the directive is absent — yescrypt is the
+ * default on all supported RHEL/AlmaLinux releases.
+ *
+ * DES and MD5 are explicitly rejected: both are cryptographically broken
+ * and unsuitable for new password hashing.
+ *
+ * Returns: 0 on success
+ *          -1, errno=EINVAL  if ENCRYPT_METHOD names DES or MD5
+ *          -1, errno=ERANGE  if @outlen is too small for the prefix
  */
-struct encrypt_settings {
-  char method[ENCRYPT_METHOD_MAX]; /* e.g. "SHA512", "YESCRYPT", "SHA256" */
-  unsigned long sha_rounds;        /* SHA-crypt rounds (SHA256/SHA512) */
-  unsigned long yescrypt_cost;     /* yescrypt cost factor (YESCRYPT) */
-};
+int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
+                     char *out, size_t outlen);
 
 /* ============================================================================
- * login.defs Parsing
+ * Password hashing
  * ============================================================================
  */
 
 /**
- * get_encrypt_settings - Read encryption settings from login.defs
- * @ops:             Syscall operations (fopen, fclose, fgets)
- * @login_defs_path: Path to login.defs (typically "/etc/login.defs")
- * @settings:        Output: populated with method and cost parameters
+ * hash_password - Hash a plaintext password using crypt_r(3)
+ * @ops:      Syscall operations (getrandom, crypt_gensalt_ra, crypt_r)
+ * @password: Plaintext password (NUL-terminated, non-empty)
+ * @prefix:   crypt(3) algorithm prefix from get_crypt_prefix()
+ * @hash_buf: Output buffer; VNC_HASH_BUF_SIZE bytes is always sufficient
+ * @hash_len: Size of @hash_buf
  *
- * Parses ENCRYPT_METHOD, YESCRYPT_COST_FACTOR, and SHA_CRYPT_MAX_ROUNDS.
- * Falls back to compiled-in defaults if the file is missing or a directive
- * is absent.
+ * Passes count=0 to crypt_gensalt_ra so libxcrypt selects the
+ * algorithm-specific default cost (yescrypt: N=32768, r=32, p=1;
+ * SHA-512: 5000 rounds).  These defaults are the same as shadow-utils
+ * uses when login.defs carries no explicit cost directive.
  *
- * Returns: 0 on success, -1 on invalid args (errno set)
- */
-int get_encrypt_settings(const struct syscall_ops *ops,
-                         const char *login_defs_path,
-                         struct encrypt_settings *settings);
-
-/* ============================================================================
- * Salt Generation
- * ============================================================================
- */
-
-/**
- * generate_salt - Generate a cryptographically secure salt string
- * @ops:      Syscall operations (getrandom, crypt_gensalt_ra, free)
- * @settings: Encryption settings (method and cost)
- * @salt_buf: Output buffer for the salt string
- * @salt_len: Size of salt_buf (use SALT_BUF_SIZE)
- *
- * Uses crypt_gensalt_ra(), which handles each algorithm correctly:
- * - SHA-512 ($6$): "rounds=N$" prefix, count = sha_rounds
- * - SHA-256 ($5$): "rounds=N$" prefix, count = sha_rounds
- * - yescrypt ($y$): cost encoded as param string, count = yescrypt_cost
- * - bcrypt ($2b$): cost encoded as log2 rounds
- *
- * Returns: 0 on success, -1 on failure (errno set)
- */
-int generate_salt(const struct syscall_ops *ops,
-                  const struct encrypt_settings *settings, char *salt_buf,
-                  size_t salt_len);
-
-/* ============================================================================
- * Password Hashing
- * ============================================================================
- */
-
-/**
- * hash_password - Hash a plaintext password using crypt_r
- * @ops:      Syscall operations (getrandom, crypt_gensalt_ra, crypt_r, free)
- * @password: Plaintext password to hash
- * @settings: Encryption settings (method and cost)
- * @hash_buf: Output buffer for the hash string
- * @hash_len: Size of hash_buf (use VNC_HASH_BUF_SIZE)
- *
- * Returns: 0 on success, -1 on failure (errno set)
+ * Returns: 0 on success, -1 on error (errno set)
  */
 int hash_password(const struct syscall_ops *ops, const char *password,
-                  const struct encrypt_settings *settings, char *hash_buf,
-                  size_t hash_len);
+                  const char *prefix, char *hash_buf, size_t hash_len);
 
 /* ============================================================================
- * Directory Management
+ * Directory management
  * ============================================================================
  */
 
 /**
- * ensure_dir - Create a directory (and its parents) if it does not exist
+ * ensure_vnc_dir - Create the VNC configuration directory if absent
  * @ops:  Syscall operations (lstat, mkdir)
- * @path: Full path to create (e.g., "/home/user/.config/vnc")
+ * @path: Full path to create (e.g. /home/user/.config/vnc)
  *
- * Creates each component of path with mode 0700 if it does not already
- * exist.  Existing directories are silently accepted (like mkdir -p).
- * Fails if any path component exists but is not a directory.
- * Rejects paths containing ".." as a defence-in-depth measure.
+ * Creates each path component with mode 0700 (like mkdir -p).
+ * Silently accepts existing directories.  Rejects components that are
+ * not directories or paths that contain "..".
  *
- * Returns: 0 on success, -1 on failure (errno set)
+ * Returns: 0 on success, -1 on error (errno set)
  */
-int ensure_dir(const struct syscall_ops *ops, const char *path);
+int ensure_vnc_dir(const struct syscall_ops *ops, const char *path);
 
 /* ============================================================================
- * Atomic Password File Write
+ * Atomic password file write
  * ============================================================================
  */
 
 /**
- * atomic_write_passwd - Atomically write a hash to the password file
+ * atomic_write_passwd - Atomically replace the VNC password file
  * @ops:  Syscall operations (mkstemp, fchmod, write, fsync, rename, unlink)
  * @path: Destination path for the password file
- * @hash: The crypt(3) hash string to write
+ * @hash: crypt(3) hash string to write
  *
  * Write sequence:
- * 1. mkstemp() in the same directory (inherits correct SELinux label)
- * 2. fchmod(0600) before writing any data
- * 3. write hash + newline
- * 4. fsync() to flush to disk
- * 5. rename() into place (atomic on POSIX filesystems)
- * 6. selinux_restorecon() if available (non-fatal)
+ *   1. mkstemp() in the same directory (inherits SELinux default transition)
+ *   2. fchmod(0600) before writing any data
+ *   3. write(hash + "\n")
+ *   4. fsync()
+ *   5. rename() into place (atomic on POSIX filesystems)
+ *   6. selinux_restorecon() — unconditional when HAVE_SELINUX, non-fatal
  *
- * Returns: 0 on success, -1 on failure (errno set)
+ * Returns: 0 on success, -1 on error (errno set)
  */
 int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
                         const char *hash);
-
-/*
- * CLI password-reading helpers (read_password_interactive,
- * read_password_noninteractive) are declared in vncpasswd_io.h.
- * They are implemented in vncpasswd.c and are specific to the CLI tool;
- * they must not be included by the PAM module or shared library consumers.
- */
 
 #endif /* FNAL_VNCPASSWD_PASSWD_H */

@@ -84,6 +84,7 @@ const struct syscall_ops syscall_ops_default = {
      * User database operations
      */
     .getpwnam_r = getpwnam_r,
+    .getpwuid_r = getpwuid_r,
 
     /*
      * Entropy generation

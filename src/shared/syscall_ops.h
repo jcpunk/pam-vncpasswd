@@ -104,10 +104,19 @@ struct syscall_ops {
    * users.
    *
    * THREAD SAFETY:
-   * getpwnam_r is the reentrant version (vs getpwnam).
+   * Both are the reentrant _r variants.
+   *
+   * WHY BOTH:
+   * The PAM module keys lookup by username (getpwnam_r) because it is
+   * given a username by the PAM stack.  fnal-vncpasswd keys by UID
+   * (getpwuid_r) because it acts on behalf of the calling process.
+   * The two differ in key, error semantics, and privilege level; a shared
+   * wrapper would add complexity for no gain.
    */
   int (*getpwnam_r)(const char *name, struct passwd *pwd, char *buf,
                     size_t buflen, struct passwd **result);
+  int (*getpwuid_r)(uid_t uid, struct passwd *pwd, char *buf, size_t buflen,
+                    struct passwd **result);
 
   /*
    * Entropy generation
@@ -152,9 +161,12 @@ struct syscall_ops {
    * WHY WE NEED THESE:
    * Must ensure our memory allocation checks have tests for
    * when allocation fails (e.g., calloc returning NULL).
+   *
+   * free is intentionally absent: freeing memory is deterministic
+   * libc behaviour with no meaningful test variation.  Use free()
+   * directly everywhere; never route it through this structure.
    */
   void *(*calloc)(size_t nmemb, size_t size);
-  void (*free)(void *ptr);
 };
 
 /**

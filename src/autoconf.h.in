@@ -17,15 +17,6 @@
 /* Path to system login.defs file */
 #define LOGIN_DEFS_PATH "@LOGIN_DEFS_PATH@"
 
-/* Default encryption method if login.defs does not specify one */
-#define DEFAULT_ENCRYPT_METHOD "@DEFAULT_ENCRYPT_METHOD@"
-
-/* Default yescrypt cost factor if login.defs does not specify one */
-#define DEFAULT_YESCRYPT_COST @DEFAULT_YESCRYPT_COST@
-
-/* Default SHA-crypt rounds if login.defs does not specify */
-#define DEFAULT_SHA_CRYPT_ROUNDS @DEFAULT_SHA_CRYPT_ROUNDS@
-
 /* VNC password subdirectory name under user home */
 #define VNC_PASSWD_DIR "@VNC_PASSWD_DIR@"
 
@@ -38,13 +29,13 @@
  * Passwords longer than this are rejected at set-time to avoid silent
  * truncation and interoperability issues with VNC clients.
  */
-#define MAX_PASSWORD_LENGTH @MAX_PASSWORD_LENGTH@
-_Static_assert(MAX_PASSWORD_LENGTH == 8,
-               "RFB VNC Authentication limits passwords to exactly 8 characters");
+#define VNC_MAX_PASSWORD_LENGTH @MAX_PASSWORD_LENGTH@
+_Static_assert(VNC_MAX_PASSWORD_LENGTH == 8,
+               "RFB VNC Authentication limits passwords to exactly 8 characters max");
 
 /* Minimum password length enforced by fnal-vncpasswd */
-#define MIN_PASSWORD_LENGTH @MIN_PASSWORD_LENGTH@
-_Static_assert(MIN_PASSWORD_LENGTH >= 1 && MIN_PASSWORD_LENGTH <= MAX_PASSWORD_LENGTH,
-               "MIN_PASSWORD_LENGTH must be between 1 and MAX_PASSWORD_LENGTH");
+#define VNC_MIN_PASSWORD_LENGTH @MIN_PASSWORD_LENGTH@
+_Static_assert(VNC_MIN_PASSWORD_LENGTH >= 1 && VNC_MIN_PASSWORD_LENGTH <= VNC_MAX_PASSWORD_LENGTH,
+               "VNC_MIN_PASSWORD_LENGTH must be between 1 and VNC_MAX_PASSWORD_LENGTH");
 
 #endif /* PAM_FNAL_VNCPASSWD_AUTOCONF_H */
