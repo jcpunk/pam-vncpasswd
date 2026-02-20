@@ -9,6 +9,8 @@
  * - Constant-time XOR comparison to prevent timing attacks
  * - explicit_bzero() on all sensitive buffers
  * - mlock() to prevent password pages from being swapped to disk
+ * - Session binding: supplied username must resolve to getuid() to prevent
+ *   cross-user authentication into a foreign VNC session
  */
 
 #include "auth.h"
@@ -267,6 +269,13 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  * Extracted from authenticate_vnc_user() to keep error handling flat without
  * requiring goto.  Returns an open fd on success, -1 on failure.
  * On failure, *ret_pam is set to the appropriate PAM return code.
+ *
+ * Session binding: the resolved pw.pw_uid must equal getuid().  This module
+ * is loaded into a neatvnc/weston process running as the session user, so
+ * getuid() is the session owner.  Accepting a username that resolves to a
+ * different uid would allow an attacker to authenticate into a foreign session
+ * using credentials they control.  See authenticate_vnc_user() in auth.h for
+ * the full architectural constraint.
  */
 static int open_passwd_file(const struct syscall_ops *ops, const char *username,
                             bool nullok, int *ret_pam) {
@@ -300,6 +309,22 @@ static int open_passwd_file(const struct syscall_ops *ops, const char *username,
     return -1;
   }
 
+  /*
+   * Session binding: reject any username that does not resolve to the uid of
+   * the calling process.  The neatvnc/weston compositor runs as the session
+   * owner, so getuid() is that owner's uid.  Without this check, an attacker
+   * could supply a different username (one whose ~/.vnc/passwd they know) and
+   * authenticate successfully into a foreign session.
+   *
+   * getuid() (real uid) is used rather than geteuid() (effective uid) because
+   * we want the identity of the session owner, not any temporarily elevated
+   * privilege the process may hold.
+   */
+  if (pw.pw_uid != getuid()) {
+    *ret_pam = PAM_AUTH_ERR;
+    return -1;
+  }
+
   if (!pw.pw_dir || pw.pw_dir[0] == '\0') {
     *ret_pam = PAM_USER_UNKNOWN;
     return -1;
@@ -310,6 +335,7 @@ static int open_passwd_file(const struct syscall_ops *ops, const char *username,
     return -1;
   }
 
+  fd = validate_passwd_file(ops, passwd_path, pw.pw_uid);
   if (fd < 0) {
     if (errno == ENOENT && nullok) {
       *ret_pam = PAM_SUCCESS;

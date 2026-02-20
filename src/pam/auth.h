@@ -122,14 +122,35 @@ int verify_password(const struct syscall_ops *ops, const char *password,
  * @password: Supplied password (from pam_get_authtok)
  * @nullok:   If true, a missing password file returns PAM_SUCCESS
  *
+ * ARCHITECTURAL CONSTRAINT — SESSION BINDING:
+ * This module is designed to be loaded exclusively into a single-user VNC
+ * session process (e.g. neatvnc running under a weston compositor).  That
+ * process runs as the session owner, so getuid() at auth time IS the
+ * session owner's uid.
+ *
+ * The supplied @username is resolved via getpwnam_r and its uid is compared
+ * against getuid().  If they do not match, PAM_AUTH_ERR is returned
+ * immediately, before any password file is opened.  This prevents an attacker
+ * from supplying a different username (one whose ~/.vnc/passwd they know) to
+ * authenticate into a foreign session.
+ *
+ * This check is in addition to validate_passwd_file()'s st_uid == pw.pw_uid
+ * ownership check, which guards against file-level substitution but does not
+ * by itself prevent the wrong user's password file from being consulted.
+ *
+ * This module must NOT be deployed in a multi-user PAM service (e.g. sshd,
+ * login) where the authenticating process runs as root; getuid() == 0 in that
+ * context and the uid binding check would incorrectly reject all users.
+ *
  * Authentication sequence:
  *   1. mlock() password buffer in RAM (non-fatal if it fails)
  *   2. Look up home directory via getpwnam_r
- *   3. Build canonical path via build_vnc_passwd_path()
- *   4. Open and validate the password file (TOCTOU-safe)
- *   5. Read stored hash from file
- *   6. Verify password (constant-time comparison)
- *   7. explicit_bzero() all sensitive buffers
+ *   3. Reject if resolved uid != getuid() (session binding)
+ *   4. Build canonical path via build_vnc_passwd_path()
+ *   5. Open and validate the password file (TOCTOU-safe)
+ *   6. Read stored hash from file
+ *   7. Verify password (constant-time comparison)
+ *   8. explicit_bzero() all sensitive buffers
  *
  * Returns: PAM return code (PAM_SUCCESS, PAM_AUTH_ERR, PAM_USER_UNKNOWN, etc.)
  */
