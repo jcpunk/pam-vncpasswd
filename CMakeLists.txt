@@ -148,8 +148,9 @@ if(NOT VNC_MIN_PASSWORD_LENGTH MATCHES "^[0-8]+$")
 endif()
 
 if(NOT VNC_MAX_PASSWORD_LENGTH EQUAL 8)
-  message(FATAL_ERROR "VNC_MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
-                      "Got: ${VNC_MAX_PASSWORD_LENGTH}")
+  message(
+    FATAL_ERROR "VNC_MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
+                "Got: ${VNC_MAX_PASSWORD_LENGTH}")
 endif()
 
 # ##############################################################################

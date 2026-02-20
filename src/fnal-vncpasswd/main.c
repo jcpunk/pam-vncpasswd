@@ -38,6 +38,14 @@
 #include "vnc_path.h"
 
 /* ============================================================================
+ * Forward declarations for internal functions
+ * ============================================================================
+ */
+static void print_help(void) __attribute__((cold));
+static int read_password(char *buf, size_t buflen)
+    __attribute__((warn_unused_result));
+
+/* ============================================================================
  * Terminal password reading
  * ============================================================================
  */
