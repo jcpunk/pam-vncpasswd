@@ -35,46 +35,48 @@ message(STATUS "Supported C features: ${CMAKE_C_COMPILE_FEATURES}")
 # ##############################################################################
 # Required Compiler Warnings These warnings help catch common issues
 add_compile_options(
+  -Werror # Treat all warnings as errors
   -Wall # Enable most warnings
   -Wextra # Enable extra warnings
   -Wpedantic # ISO C conformance warnings
+  -Walloca # Warn on suspicious alloca usage
+  -Wcast-align # Warn on alignment-affecting casts
+  -Wcast-qual # Warn on cast removing const/volatile
   -Wconversion # Implicit conversion warnings
-  -Wsign-conversion # Sign conversion warnings
+  -Wdisabled-optimization # Optimization disabled
+  -Wdouble-promotion # Implicit float-to-double promotion
+  -Werror=implicit-function-declaration # Error on implicit declarations
   -Wformat=2 # Enhanced format string warnings
   -Wformat-security # Format security issues
-  -Wstrict-prototypes # Require function prototypes
-  -Wstrict-overflow=2 # Overflow detection (level 2)
-  -Wvla # Variable length arrays discouraged
-  -Wshadow # Warn on shadowed variables
-  -Walloca # Warn on suspicious alloca usage
-  -Wcast-qual # Warn on cast removing const/volatile
-  -Wcast-align # Warn on alignment-affecting casts
-  -Wwrite-strings # String literals are const
-  -Wundef # Undefined macro in #if
-  -Wmissing-prototypes # Missing function prototypes
-  -Wmissing-declarations # Missing declarations
-  -Wredundant-decls # Redundant declarations
-  -Wnested-externs # Nested extern declarations
   -Winline # Inline function can't be inlined
-  -Wdisabled-optimization # Optimization disabled
-  -Werror=implicit-function-declaration # Error on implicit declarations
-  -Werror # Treat all warnings as errors
+  -Wmissing-declarations # Missing declarations
+  -Wmissing-field-initializers # Struct fields left uninitialized
+  -Wmissing-prototypes # Missing function prototypes
+  -Wnested-externs # Nested extern declarations
+  -Wnull-dereference # Potential NULL dereferences
+  -Wredundant-decls # Redundant declarations
+  -Wshadow # Warn on shadowed variables
+  -Wsign-conversion # Sign conversion warnings
+  -Wstrict-overflow=2 # Overflow detection (level 2)
+  -Wstrict-prototypes # Require function prototypes
+  -Wundef # Undefined macro in #if
+  -Wvla # Variable length arrays discouraged
+  -Wwrite-strings # String literals are const
 )
 
 # Ensure our behavior modes are defined
 add_compile_definitions(_POSIX_C_SOURCE=200809L _XOPEN_SOURCE=700)
 
-# Additional hardening for formats
-add_compile_options(-D_GLIBCXX_ASSERTIONS)
-
 # Additional GCC features (not supported by all compilers)
 if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
   add_compile_options(
+    -Warith-conversion # Implicit conversions in arithmetic
+    -Wduplicated-branches # Identical if/else branches
+    -Wduplicated-cond # Duplicated conditions in if/else chains
+    -Wjump-misses-init # goto skips variable initialization
     -Wlogical-op # Suspicious logical operations
-    -Wduplicated-cond # Duplicated conditions
-    -Wduplicated-branches # Duplicated branches
-    -Wnull-dereference # Potential NULL dereferences
-    -Wjump-misses-init # Jump skips variable initialization
+    -Wstringop-overflow # String operations writing past buffer end
+    -Wtrampolines # Nested functions requiring executable stack
   )
 endif(CMAKE_C_COMPILER_ID STREQUAL "GNU")
 
@@ -98,9 +100,8 @@ endif()
 set(_expected_pam_dir "${CMAKE_INSTALL_FULL_LIBDIR}/security")
 
 if(DEFINED PAM_MODULE_DIR AND NOT PAM_MODULE_DIR STREQUAL _expected_pam_dir)
-  message(WARNING
-    "PAM_MODULE_DIR (${PAM_MODULE_DIR}) differs from expected "
-    "(${_expected_pam_dir}) for this platform")
+  message(WARNING "PAM_MODULE_DIR (${PAM_MODULE_DIR}) differs from expected "
+                  "(${_expected_pam_dir}) for this platform")
 endif()
 
 if(NOT DEFINED VNC_PASSWD_DIR)
@@ -111,22 +112,14 @@ endif()
 
 if(NOT DEFINED VNC_PASSWD_FILE)
   set(VNC_PASSWD_FILE
-      "fnal_vncpasswd"
+      "fnal-vncpasswd"
       CACHE STRING "VNC password filename within VNC_PASSWD_DIR")
 endif()
 
-set(MAX_PASSWORD_LENGTH
-      8
-      CACHE STRING
-            "Maximum password length (VNC RFB protocol limit is 8 characters)" FORCE)
+set(MAX_PASSWORD_LENGTH 8) # RFB protocol limit is 8
 
 # ##############################################################################
 # Top Level Configuration Variables
-if(NOT DEFINED LOGIN_DEFS_PATH) # shadow-utils considers this file a private api
-  set(LOGIN_DEFS_PATH
-      "/etc/login.defs"
-      CACHE PATH "Path to login.defs")
-endif()
 
 if(NOT DEFINED DEFAULT_ENCRYPT_METHOD)
   set(DEFAULT_ENCRYPT_METHOD
@@ -134,71 +127,39 @@ if(NOT DEFINED DEFAULT_ENCRYPT_METHOD)
       CACHE STRING "Default encrypt method if login.defs does not specify")
 endif()
 
-if(NOT DEFINED DEFAULT_YESCRYPT_COST)
-  set(DEFAULT_YESCRYPT_COST
-      7
-      CACHE STRING "Default yescrypt cost factor (YESCRYPT_COST_FACTOR)")
-endif()
-
-if(NOT DEFINED DEFAULT_SHA_CRYPT_ROUNDS)
-  set(DEFAULT_SHA_CRYPT_ROUNDS
-      131071
-      CACHE STRING "Default SHA-crypt rounds (SHA_CRYPT_MAX_ROUNDS)")
-endif()
-
-
-if(NOT DEFINED MIN_PASSWORD_LENGTH)
-  set(MIN_PASSWORD_LENGTH
+if(NOT DEFINED VNC_MIN_PASSWORD_LENGTH)
+  set(VNC_MIN_PASSWORD_LENGTH
       6
       CACHE STRING "Minimum password length enforced by fnal-vncpasswd")
 endif()
 
 # ##############################################################################
 # Validate Configuration
-if(NOT DEFAULT_YESCRYPT_COST MATCHES "^[0-9]+$")
+if(NOT VNC_MIN_PASSWORD_LENGTH MATCHES "^[0-8]+$")
   message(
     FATAL_ERROR
-      "DEFAULT_YESCRYPT_COST must be a non-negative integer (got: '${DEFAULT_YESCRYPT_COST}')"
+      "VNC_MIN_PASSWORD_LENGTH must be a non-negative integer (got: '${VNC_MIN_PASSWORD_LENGTH}')"
   )
 endif()
 
-if(NOT DEFAULT_SHA_CRYPT_ROUNDS MATCHES "^[0-9]+$")
+if(NOT VNC_MAX_PASSWORD_LENGTH EQUAL 8)
   message(
-    FATAL_ERROR
-      "DEFAULT_SHA_CRYPT_ROUNDS must be a non-negative integer (got: '${DEFAULT_SHA_CRYPT_ROUNDS}')"
-  )
-endif()
-
-if(NOT MIN_PASSWORD_LENGTH MATCHES "^[0-9]+$")
-  message(
-    FATAL_ERROR
-      "MIN_PASSWORD_LENGTH must be a non-negative integer (got: '${MIN_PASSWORD_LENGTH}')"
-  )
-endif()
-
-if(NOT MAX_PASSWORD_LENGTH EQUAL 8)
-    message(FATAL_ERROR
-        "MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
-        "Got: ${MAX_PASSWORD_LENGTH}")
+    FATAL_ERROR "VNC_MAX_PASSWORD_LENGTH must be 8 (VNC RFB protocol limit). "
+                "Got: ${VNC_MAX_PASSWORD_LENGTH}")
 endif()
 
 # ##############################################################################
 # task focused cmake
-include(docs/CMakeLists.txt)
-include(src/CMakeLists.txt)
-include(test/CMakeLists.txt)
+add_subdirectory(docs)
+add_subdirectory(src)
+add_subdirectory(test)
 
 # ##############################################################################
 # Print out state summary
 message(STATUS "${CMAKE_PROJECT_NAME} - ${VERSION}")
 message(STATUS "Compile Time Configuration:")
-message(STATUS "  LOGIN_DEFS_PATH         = ${LOGIN_DEFS_PATH}")
-message(STATUS "  LOGIN_DEFS_PATH           = ${LOGIN_DEFS_PATH}")
-message(STATUS "  DEFAULT_ENCRYPT_METHOD    = ${DEFAULT_ENCRYPT_METHOD}")
-message(STATUS "  DEFAULT_YESCRYPT_COST     = ${DEFAULT_YESCRYPT_COST}")
-message(STATUS "  DEFAULT_SHA_CRYPT_ROUNDS  = ${DEFAULT_SHA_CRYPT_ROUNDS}")
+message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")
 message(STATUS "  VNC_PASSWD_DIR            = ${VNC_PASSWD_DIR}")
 message(STATUS "  VNC_PASSWD_FILE           = ${VNC_PASSWD_FILE}")
-message(STATUS "  MAX_PASSWORD_LENGTH       = ${MAX_PASSWORD_LENGTH}")
-message(STATUS "  MIN_PASSWORD_LENGTH       = ${MIN_PASSWORD_LENGTH}")
-message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")
+message(STATUS "  VNC_MAX_PASSWORD_LENGTH   = ${VNC_MAX_PASSWORD_LENGTH}")
+message(STATUS "  VNC_MIN_PASSWORD_LENGTH   = ${VNC_MIN_PASSWORD_LENGTH}")
