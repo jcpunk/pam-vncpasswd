@@ -178,7 +178,8 @@ static int verify_password(const struct syscall_ops *ops, const char *password,
 
 /*
  * open_and_read_passwd_hash - resolve, open, validate, and read the per-user
- * VNC password file into hash_buf, or return -1 with *pam_result set on failure.
+ * VNC password file into hash_buf, or return -1 with *pam_result set on
+ * failure.
  *
  * Session binding: the resolved pw_uid must equal getuid(). This module runs
  * inside a process owned by the session user; accepting a username that
@@ -193,7 +194,8 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                                      const char *username, char *hash_buf,
                                      size_t hash_len, bool debug) {
   struct passwd pw, *pwresult;
-  char pwbuf[4096] = {0}; /* conventional fixed size; see pam_unix and glibc docs */
+  char pwbuf[4096] = {
+      0}; /* conventional fixed size; see pam_unix and glibc docs */
   char passwd_path[PATH_MAX] = {0};
 
   FILE *fp;
@@ -357,7 +359,7 @@ int authenticate_vnc_user(const struct syscall_ops *ops,
     return result;
   }
 
-  result = verify_password(ops, password, hash) == 0;
+  result = verify_password(ops, password, hash);
   explicit_bzero(hash, sizeof(hash));
 
   if (debug && pamh) {

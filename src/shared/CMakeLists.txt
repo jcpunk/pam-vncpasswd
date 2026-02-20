@@ -11,11 +11,12 @@
 # shared/static library.  This avoids the link-time visibility and soname
 # complications that would arise from a shared library, and keeps the build
 # graph simple.
+cmake_minimum_required(VERSION 3.21)
 
 add_library(vnc_shared OBJECT syscall_ops_default.c vnc_path.c)
 
 target_compile_features(
-  vnc_shared PRIVATE c_std_11 c_restrict c_function_prototypes c_static_assert)
+  vnc_shared PRIVATE c_std_23 c_restrict c_function_prototypes c_static_assert)
 target_compile_definitions(vnc_shared PRIVATE _GNU_SOURCE)
 
 # Both the generated autoconf.h (in the top-level binary dir) and the shared

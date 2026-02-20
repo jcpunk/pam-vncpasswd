@@ -92,7 +92,7 @@ set_target_properties(pam_fnal_vncpasswd PROPERTIES PREFIX "")
 
 target_include_directories(pam_fnal_vncpasswd
                            PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_features(pam_fnal_vncpasswd PRIVATE c_std_11)
+target_compile_features(pam_fnal_vncpasswd PRIVATE c_std_23)
 target_compile_definitions(pam_fnal_vncpasswd PRIVATE _GNU_SOURCE)
 target_link_libraries(pam_fnal_vncpasswd PRIVATE vnc_shared pam_dep crypto_dep)
 
