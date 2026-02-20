@@ -1,5 +1,5 @@
 /**
- * vnc_path.h - VNC password file path construction
+ * shared/vnc_path.h - VNC password file path construction
  *
  * Shared between pam_fnal_vncpasswd.so and fnal-vncpasswd.  Both tools operate
  * on the same per-user password file; this module encapsulates path

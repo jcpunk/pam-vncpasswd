@@ -1,5 +1,5 @@
 /**
- * syscall_ops_default.c - Production system call implementation
+ * shared/syscall_ops_default.c - Production system call implementation
  *
  * Provides the canonical implementation that maps function pointers
  * directly to POSIX system calls and C library functions.

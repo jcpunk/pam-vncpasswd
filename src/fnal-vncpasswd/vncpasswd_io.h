@@ -1,5 +1,5 @@
 /**
- * vncpasswd_io.h - CLI password-reading helpers for fnal-vncpasswd
+ * fnal-vncpasswd/vncpasswd_io.h - CLI password-reading helpers for fnal-vncpasswd
  *
  * Declares read_password_interactive and read_password_noninteractive.
  * Both functions are implemented in vncpasswd.c and are specific to the

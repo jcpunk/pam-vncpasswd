@@ -1,5 +1,5 @@
 /**
- * vnc_path.c - VNC password file path construction
+ * shared/vnc_path.c - VNC password file path construction
  */
 
 #include "vnc_path.h"

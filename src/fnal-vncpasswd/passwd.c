@@ -1,5 +1,5 @@
 /**
- * passwd.c - VNC password management implementation
+ * fnal-vncpasswd/passwd.c - VNC password management implementation
  *
  * Implements password hashing and file management for fnal-vncpasswd.
  * See passwd.h for the design rationale.

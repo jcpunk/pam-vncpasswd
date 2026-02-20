@@ -1,5 +1,5 @@
 /**
- * passwd.h - VNC password management declarations for fnal-vncpasswd
+ * fnal-vncpasswd/passwd.h - VNC password management declarations for fnal-vncpasswd
  *
  * Declares the password hashing and file-management functions used by the
  * fnal-vncpasswd CLI tool.

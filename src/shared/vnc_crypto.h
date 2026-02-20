@@ -1,5 +1,5 @@
 /**
- * vnc_crypto.h - Cryptographic buffer size constants
+ * shared/vnc_crypto.h - Cryptographic buffer size constants
  *
  * Separated from vnc_path.h to keep path and crypto concerns distinct.
  * Consumers that need VNC_HASH_BUF_SIZE include this header; consumers

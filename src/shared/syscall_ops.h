@@ -1,5 +1,5 @@
 /**
- * syscall_ops.h - System call abstraction layer for dependency injection
+ * shared/syscall_ops.h - System call abstraction layer for dependency injection
  *
  * WHY THIS EXISTS:
  * Unit testing code that makes system calls is difficult because:

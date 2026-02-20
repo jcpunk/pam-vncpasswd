@@ -1,5 +1,5 @@
 /**
- * pam_entry.c - PAM module entry points
+ * pam/pam_entry.c - PAM module entry points
  *
  * Thin glue layer bridging the PAM API to the core logic in auth.c.
  * Extracts username and password from the PAM handle, then calls

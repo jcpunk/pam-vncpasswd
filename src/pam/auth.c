@@ -1,5 +1,5 @@
 /**
- * auth.c - PAM VNC authentication core implementation
+ * pam/auth.c - PAM VNC authentication core implementation
  *
  * Implements authentication against a per-user VNC password file using
  * crypt(3).

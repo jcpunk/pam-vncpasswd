@@ -1,5 +1,5 @@
 /**
- * auth.h - PAM VNC authentication core declarations
+ * pam/auth.h - PAM VNC authentication core declarations
  *
  * WHAT BELONGS HERE:
  * Password file validation, hash reading, password verification, PAM argument
