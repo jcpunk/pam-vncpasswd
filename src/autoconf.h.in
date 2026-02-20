@@ -14,9 +14,6 @@
 /* Version information */
 #define VERSION "@VERSION@"
 
-/* Path to system login.defs file */
-#define LOGIN_DEFS_PATH "@LOGIN_DEFS_PATH@"
-
 /* VNC password subdirectory name under user home */
 #define VNC_PASSWD_DIR "@VNC_PASSWD_DIR@"
 

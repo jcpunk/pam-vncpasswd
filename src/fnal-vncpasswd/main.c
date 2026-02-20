@@ -13,7 +13,8 @@
  *   -v   Show version
  *
  * SECURITY:
- * - Reads ENCRYPT_METHOD from /etc/login.defs; defaults to yescrypt
+ * - Uses libxcrypt's compiled-in default algorithm (yescrypt on modern
+ * systems)
  * - Passes count=0 to crypt_gensalt_ra (libxcrypt algorithm defaults)
  * - Writes password file atomically via mkstemp + rename
  * - Sets file permissions 0600 before writing data
@@ -139,7 +140,6 @@ static void print_help(void) {
 int main(int argc, char *argv[]) {
   int opt = 0;
   char passwd_path[PATH_MAX] = {0};
-  char prefix[16] = {0};
   char password[VNC_MAX_PASSWORD_LENGTH] = {0};
   char hash[VNC_HASH_BUF_SIZE] = {0};
 
@@ -164,20 +164,12 @@ int main(int argc, char *argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  if (get_crypt_prefix(&syscall_ops_default, LOGIN_DEFS_PATH, prefix,
-                       sizeof(prefix)) < 0) {
-    (void)fprintf(stderr, "Unsupported ENCRYPT_METHOD in %s: %s\n",
-                  LOGIN_DEFS_PATH, strerror(errno));
-    exit(EXIT_FAILURE);
-  }
-
   if (read_password(password, sizeof(password)) < 0) {
     (void)explicit_bzero(password, sizeof(password));
     exit(EXIT_FAILURE);
   }
 
-  if (hash_password(&syscall_ops_default, password, prefix, hash,
-                    sizeof(hash)) < 0) {
+  if (hash_password(&syscall_ops_default, password, hash, sizeof(hash)) < 0) {
     (void)fprintf(stderr, "Failed to hash password: %s\n", strerror(errno));
     (void)explicit_bzero(password, sizeof(password));
     (void)explicit_bzero(hash, sizeof(hash));

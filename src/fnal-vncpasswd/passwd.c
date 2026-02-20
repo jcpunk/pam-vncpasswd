@@ -24,7 +24,7 @@
 #endif
 
 #include "syscall_ops.h"
-#include "vnc_crypto.h"
+#include "vnc_path.h"
 
 /* ============================================================================
  * Password file path resolution
@@ -55,7 +55,7 @@ int get_passwd_path(const struct syscall_ops *ops, uid_t uid, char *buf,
   }
   // LCOV_EXCL_STOP
 
-  pwbuf = ops->calloc((size_t)pw_bufsz);
+  pwbuf = ops->calloc(1, (size_t)pw_bufsz);
   if (!pwbuf) {
     errno = ENOMEM;
     return -1;
@@ -84,124 +84,6 @@ int get_passwd_path(const struct syscall_ops *ops, uid_t uid, char *buf,
 }
 
 /* ============================================================================
- * Algorithm selection
- * ============================================================================
- */
-
-/*
- * SUPPORTED ALGORITHMS:
- * DES and MD5 are absent from this table and rejected explicitly below.
- * DES has no configurable salt prefix and is brute-forceable in seconds.
- * MD5-crypt ($1$) has been broken since the early 2000s.
- */
-static const struct {
-  const char *name;
-  const char *prefix;
-} METHOD_TABLE[] = {
-    {"YESCRYPT", "$y$"},  {"SHA512", "$6$"},  {"SHA256", "$5$"},
-    {"BLOWFISH", "$2b$"}, {"BCRYPT", "$2b$"}, {NULL, NULL},
-};
-
-/*
- * method_to_prefix - Map an ENCRYPT_METHOD name to a crypt(3) prefix
- *
- * Returns: 0 on success
- *          -1, errno=EINVAL  for DES, MD5, or unknown names
- *          -1, errno=ERANGE  if prefix_len is too small
- */
-static int method_to_prefix(const char *method, char *prefix_out,
-                            size_t prefix_len) {
-  int i;
-
-  if (strcmp(method, "DES") == 0 || strcmp(method, "MD5") == 0) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  for (i = 0; METHOD_TABLE[i].name != NULL; i++) {
-    if (strcmp(method, METHOD_TABLE[i].name) == 0) {
-      int n = snprintf(prefix_out, prefix_len, "%s", METHOD_TABLE[i].prefix);
-      if (n < 0 || (size_t)n >= prefix_len) {
-        errno = ERANGE;
-        return -1;
-      }
-      return 0;
-    }
-  }
-
-  errno = EINVAL;
-  return -1;
-}
-
-int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
-                     char *out, size_t outlen) {
-  FILE *fp;
-  char line[1024];
-  char method[64];
-
-  if (!ops || !login_defs_path || !out || outlen == 0) {
-    errno = EINVAL;
-    return -1;
-  }
-
-  /* Default: yescrypt (RHEL 9+ system default) */
-  method[0] = '\0';
-
-  fp = ops->fopen(login_defs_path, "r");
-  if (fp) {
-    while (ops->fgets(line, (int)sizeof(line), fp) != NULL) {
-      char *p = line;
-      char *end;
-      size_t key_len;
-
-      /* Skip leading whitespace, comments, blank lines */
-      while (*p == ' ' || *p == '\t')
-        p++;
-      if (*p == '#' || *p == '\n' || *p == '\0')
-        continue;
-
-      key_len = strlen("ENCRYPT_METHOD");
-      if (strncmp(p, "ENCRYPT_METHOD", key_len) != 0)
-        continue;
-      p += key_len;
-
-      /* Key must be followed by whitespace */
-      if (*p != ' ' && *p != '\t')
-        continue;
-      while (*p == ' ' || *p == '\t')
-        p++;
-
-      /* Ignore empty values and inline comments */
-      if (*p == '\0' || *p == '\n' || *p == '#')
-        continue;
-
-      /* Strip trailing whitespace */
-      end = p + strlen(p) - 1;
-      while (end > p &&
-             (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
-        *end-- = '\0';
-
-      /* Copy value; truncation means it won't match the table */
-      (void)snprintf(method, sizeof(method), "%s", p);
-      break;
-    }
-    ops->fclose(fp);
-  }
-  /* Missing login.defs is not an error: fall through to default */
-
-  if (method[0] == '\0') {
-    int n = snprintf(out, outlen, "$y$");
-    if (n < 0 || (size_t)n >= outlen) {
-      errno = ERANGE;
-      return -1;
-    }
-    return 0;
-  }
-
-  return method_to_prefix(method, out, outlen);
-}
-
-/* ============================================================================
  * Password hashing
  * ============================================================================
  */
@@ -209,9 +91,8 @@ int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
 /*
  * generate_salt - Fill a salt buffer for the given prefix
  *
- * Passes count=0 to crypt_gensalt_ra.  libxcrypt interprets 0 as
- * "use the algorithm's compiled-in default cost", which for yescrypt is
- * cost factor 5 (N=32768, r=32, p=1) and for SHA-512 is 5000 rounds.
+ * Passing count=0 to crypt_gensalt_ra() signals libxcrypt to use the
+ * algorithm’s compiled-in default cost.
  *
  * getrandom(2) may return fewer bytes than requested when the kernel
  * entropy pool is not yet fully seeded.  Loop until the full 32-byte
@@ -219,8 +100,8 @@ int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
  *
  * Returns: 0 on success, -1 on error (errno set)
  */
-static int generate_salt(const struct syscall_ops *ops, const char *prefix,
-                         char *salt_buf, size_t salt_len) {
+static int generate_salt(const struct syscall_ops *ops, char *salt_buf,
+                         size_t salt_len) {
   char rbytes[32];
   size_t total;
   char *salt;
@@ -236,7 +117,7 @@ static int generate_salt(const struct syscall_ops *ops, const char *prefix,
     total += (size_t)got;
   }
 
-  salt = ops->crypt_gensalt_ra(prefix, 0, rbytes, (int)sizeof(rbytes));
+  salt = ops->crypt_gensalt_ra(NULL, 0, rbytes, (int)sizeof(rbytes));
   memset(rbytes, 0, sizeof(rbytes));
 
   if (!salt) {
@@ -256,7 +137,7 @@ static int generate_salt(const struct syscall_ops *ops, const char *prefix,
 }
 
 int hash_password(const struct syscall_ops *ops, const char *password,
-                  const char *prefix, char *hash_buf, size_t hash_len) {
+                  char *hash_buf, size_t hash_len) {
   char salt[CRYPT_GENSALT_OUTPUT_SIZE];
   struct crypt_data cd;
   char *result;
@@ -268,7 +149,7 @@ int hash_password(const struct syscall_ops *ops, const char *password,
     return -1;
   }
 
-  if (generate_salt(ops, prefix, salt, sizeof(salt)) < 0)
+  if (generate_salt(ops, salt, sizeof(salt)) < 0)
     return -1;
 
   memset(&cd, 0, sizeof(cd));

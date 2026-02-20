@@ -120,11 +120,6 @@ set(MAX_PASSWORD_LENGTH 8) # RFB protocol limit is 8
 
 # ##############################################################################
 # Top Level Configuration Variables
-if(NOT DEFINED LOGIN_DEFS_PATH) # shadow-utils considers this file a private api
-  set(LOGIN_DEFS_PATH
-      "/etc/login.defs"
-      CACHE PATH "Path to login.defs")
-endif()
 
 if(NOT DEFINED DEFAULT_ENCRYPT_METHOD)
   set(DEFAULT_ENCRYPT_METHOD
@@ -155,17 +150,16 @@ endif()
 
 # ##############################################################################
 # task focused cmake
-include(docs/CMakeLists.txt)
-include(src/CMakeLists.txt)
-include(test/CMakeLists.txt)
+add_subdirectory(docs)
+add_subdirectory(src)
+add_subdirectory(test)
 
 # ##############################################################################
 # Print out state summary
 message(STATUS "${CMAKE_PROJECT_NAME} - ${VERSION}")
 message(STATUS "Compile Time Configuration:")
-message(STATUS "  LOGIN_DEFS_PATH           = ${LOGIN_DEFS_PATH}")
+message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")
 message(STATUS "  VNC_PASSWD_DIR            = ${VNC_PASSWD_DIR}")
 message(STATUS "  VNC_PASSWD_FILE           = ${VNC_PASSWD_FILE}")
 message(STATUS "  VNC_MAX_PASSWORD_LENGTH   = ${VNC_MAX_PASSWORD_LENGTH}")
 message(STATUS "  VNC_MIN_PASSWORD_LENGTH   = ${VNC_MIN_PASSWORD_LENGTH}")
-message(STATUS "  PAM_MODULE_DIR            = ${PAM_MODULE_DIR}")

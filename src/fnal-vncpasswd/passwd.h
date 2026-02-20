@@ -44,33 +44,6 @@ int get_passwd_path(const struct syscall_ops *ops, uid_t uid, char *buf,
                     size_t buflen);
 
 /* ============================================================================
- * Algorithm selection
- * ============================================================================
- */
-
-/**
- * get_crypt_prefix - Resolve crypt(3) algorithm prefix from login.defs
- * @ops:             Syscall operations (fopen, fgets, fclose)
- * @login_defs_path: Path to login.defs (typically LOGIN_DEFS_PATH)
- * @out:             Output buffer; 16 bytes is always sufficient
- * @outlen:          Size of @out
- *
- * Reads ENCRYPT_METHOD from @login_defs_path and maps it to the
- * corresponding crypt(3) prefix string.  Falls back to "$y$" (yescrypt)
- * if the file is missing or the directive is absent — yescrypt is the
- * default on all supported RHEL/AlmaLinux releases.
- *
- * DES and MD5 are explicitly rejected: both are cryptographically broken
- * and unsuitable for new password hashing.
- *
- * Returns: 0 on success
- *          -1, errno=EINVAL  if ENCRYPT_METHOD names DES or MD5
- *          -1, errno=ERANGE  if @outlen is too small for the prefix
- */
-int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
-                     char *out, size_t outlen);
-
-/* ============================================================================
  * Password hashing
  * ============================================================================
  */
@@ -79,19 +52,17 @@ int get_crypt_prefix(const struct syscall_ops *ops, const char *login_defs_path,
  * hash_password - Hash a plaintext password using crypt_r(3)
  * @ops:      Syscall operations (getrandom, crypt_gensalt_ra, crypt_r)
  * @password: Plaintext password (NUL-terminated, non-empty)
- * @prefix:   crypt(3) algorithm prefix from get_crypt_prefix()
  * @hash_buf: Output buffer; VNC_HASH_BUF_SIZE bytes is always sufficient
  * @hash_len: Size of @hash_buf
  *
- * Passes count=0 to crypt_gensalt_ra so libxcrypt selects the
- * algorithm-specific default cost (yescrypt: N=32768, r=32, p=1;
- * SHA-512: 5000 rounds).  These defaults are the same as shadow-utils
- * uses when login.defs carries no explicit cost directive.
+ * The algorithm is libxcrypt's compiled-in default (yescrypt on any
+ * modern build).  NULL is passed as the prefix to crypt_gensalt_ra(3),
+ * which the library documents as "use the preferred algorithm".
  *
  * Returns: 0 on success, -1 on error (errno set)
  */
 int hash_password(const struct syscall_ops *ops, const char *password,
-                  const char *prefix, char *hash_buf, size_t hash_len);
+                  char *hash_buf, size_t hash_len);
 
 /* ============================================================================
  * Directory management
