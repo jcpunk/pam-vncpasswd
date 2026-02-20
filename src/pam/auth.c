@@ -347,6 +347,11 @@ int authenticate_vnc_user(const struct syscall_ops *ops,
     return PAM_AUTH_ERR;
   }
 
+  if (debug && pamh) {
+    pam_syslog((pam_handle_t *)(uintptr_t)(pamh), LOG_DEBUG,
+               "pam_fnal_vncpasswd: version=%s", VERSION);
+  }
+
   /*
    * No password length check required: a password too long to have been
    * set by fnal-vncpasswd will produce a mismatched hash and fail naturally.
