@@ -55,7 +55,7 @@ static int verify_password(const struct syscall_ops *ops, const char *password,
     __attribute__((nonnull(1, 2, 3)));
 
 static int open_and_read_passwd_hash(const struct syscall_ops *ops,
-                                     const pam_handle_t *pamh, int *ret_pam,
+                                     const pam_handle_t *pamh, int *pam_result,
                                      const char *username, char *hash_buf,
                                      size_t hash_len, bool debug)
     __attribute__((nonnull(1, 3, 4, 5)));
@@ -134,7 +134,7 @@ static int validate_passwd_file(const struct syscall_ops *ops, const char *path,
 
 #if defined(HAVE_OPENSSL) || defined(HAVE_LIBRESSL)
 #include <openssl/crypto.h>
-/* All both expose the same header and symbol */
+/* Both expose the same header and symbol */
 static int vnc_const_memcmp(const void *a, const void *b, size_t len) {
   return CRYPTO_memcmp(a, b, len);
 }
@@ -153,7 +153,7 @@ static int verify_password(const struct syscall_ops *ops, const char *password,
 
   memset(&cd, 0, sizeof(cd));
   computed = ops->crypt_r(password, stored_hash, &cd);
-  if (!computed || computed[0] == '*') {
+  if (computed == NULL || computed[0] == '*') {
     explicit_bzero(&cd, sizeof(cd));
     errno = EINVAL;
     return PAM_AUTH_ERR;
@@ -178,7 +178,7 @@ static int verify_password(const struct syscall_ops *ops, const char *password,
 
 /*
  * open_and_read_passwd_hash - resolve, open, validate, and read the per-user
- * VNC password file into hash_buf, or return -1 with *ret_pam set on failure.
+ * VNC password file into hash_buf, or return -1 with *pam_result set on failure.
  *
  * Session binding: the resolved pw_uid must equal getuid(). This module runs
  * inside a process owned by the session user; accepting a username that
@@ -189,24 +189,25 @@ static int verify_password(const struct syscall_ops *ops, const char *password,
  * elevated effective uid does not widen the acceptable identity set.
  */
 static int open_and_read_passwd_hash(const struct syscall_ops *ops,
-                                     const pam_handle_t *pamh, int *ret_pam,
+                                     const pam_handle_t *pamh, int *pam_result,
                                      const char *username, char *hash_buf,
                                      size_t hash_len, bool debug) {
   struct passwd pw, *pwresult;
-  char pwbuf[4096]; /* conventional fixed size; see pam_unix and glibc docs */
-  char passwd_path[PATH_MAX];
+  char pwbuf[4096] = {0}; /* conventional fixed size; see pam_unix and glibc docs */
+  char passwd_path[PATH_MAX] = {0};
+
   FILE *fp;
   size_t len;
   int fd, saved_errno;
 
   if (hash_len == 0) {
     errno = EINVAL;
-    *ret_pam = PAM_AUTH_ERR;
+    *pam_result = PAM_AUTH_ERR;
     return -1;
   }
 
   if (ops->getpwnam_r(username, &pw, pwbuf, sizeof(pwbuf), &pwresult) != 0 ||
-      !pwresult) {
+      pwresult == NULL) {
     /*
      * PAM_USER_UNKNOWN rather than PAM_AUTH_ERR is standard behaviour
      * (cf. pam_unix): it lets stacked modules gate access early without
@@ -218,7 +219,7 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                  "pam_fnal_vncpasswd: getpwnam_r: user not found");
       errno = saved_errno;
     }
-    *ret_pam = PAM_USER_UNKNOWN;
+    *pam_result = PAM_USER_UNKNOWN;
     return -1;
   }
   if (debug && pamh) {
@@ -236,12 +237,12 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                  (unsigned long)pw.pw_uid, (unsigned long)getuid());
       errno = saved_errno;
     }
-    *ret_pam = PAM_AUTH_ERR;
+    *pam_result = PAM_AUTH_ERR;
     return -1;
   }
 
   /* for our purposes "/" is also an invalid homdir */
-  if (!pw.pw_dir || pw.pw_dir[0] == '\0' || pw.pw_dir[0] != "/" ||
+  if (pw.pw_dir == NULL || pw.pw_dir[0] != "/" ||
       (pw.pw_dir[0] == "/" && pw.pw_dir[1] == '\0')) {
     if (debug && pamh) {
       saved_errno = errno;
@@ -249,7 +250,7 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                  "pam_fnal_vncpasswd: no home directory in passwd entry");
       errno = saved_errno;
     }
-    *ret_pam = PAM_USER_UNKNOWN;
+    *pam_result = PAM_USER_UNKNOWN;
     return -1;
   }
 
@@ -261,7 +262,7 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                  saved_errno);
       errno = saved_errno;
     }
-    *ret_pam = PAM_AUTH_ERR;
+    *pam_result = PAM_AUTH_ERR;
     return -1;
   }
 
@@ -275,7 +276,7 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
                  saved_errno);
       errno = saved_errno;
     }
-    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    *pam_result = PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
 
@@ -293,14 +294,14 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
     int saved_errno = errno;
     ops->close(fd);
     errno = saved_errno;
-    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    *pam_result = PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
 
   if (ops->fgets(hash_buf, (int)hash_len, fp) == NULL) {
     ops->fclose(fp);
     errno = ENODATA;
-    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    *pam_result = PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
   ops->fclose(fp);
@@ -315,7 +316,7 @@ static int open_and_read_passwd_hash(const struct syscall_ops *ops,
 
   if (hash_buf[0] == '\0') {
     errno = ENODATA;
-    *ret_pam = PAM_AUTHINFO_UNAVAIL;
+    *pam_result = PAM_AUTHINFO_UNAVAIL;
     return -1;
   }
 
