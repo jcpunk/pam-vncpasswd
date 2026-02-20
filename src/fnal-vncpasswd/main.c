@@ -1,9 +1,8 @@
 /**
  * fnal-vncpasswd/main.c - fnal-vncpasswd CLI tool
  *
- * Sets or removes the per-user VNC password stored at
- * ~/.config/vnc/fnal-vncpasswd
- * The file is compatible with the pam_fnal_vncpasswd PAM module.
+ * Sets the per-user VNC password.
+ * This is intended for use with the pam_fnal_vncpasswd PAM module.
  *
  * USAGE:
  *   fnal-vncpasswd [-h|--help] [--version]
@@ -32,6 +31,7 @@
 #include "passwd.h"
 #include "syscall_ops.h"
 #include "vnc_crypto.h"
+#include "vnc_path.h"
 
 /* ============================================================================
  * Forward declarations for internal functions
@@ -124,13 +124,21 @@ static int read_password(char *buf, size_t buflen) {
  */
 
 static void print_help(void) {
+  char passwd_display_path[PATH_MAX] = {0};
+
   (void)printf("Usage: %s [OPTIONS]\n", PROJECT_NAME);
   (void)printf("Version: %s\n", VERSION);
   (void)printf("\n");
   (void)printf("Set the VNC password used by pam_fnal_vncpasswd.\n");
+  if (build_vnc_passwd_path("~", passwd_display_path,
+                            sizeof(passwd_display_path)) == 0) {
+    (void)printf("\n");
+    (void)printf("Password file: %s\n", passwd_display_path);
+  }
   (void)printf("\n");
   (void)printf("  -h, --help       Show this help\n");
   (void)printf("      --version    Show version\n");
+  (void)printf("\n");
 }
 
 int main(int argc, char *argv[]) {
