@@ -140,10 +140,9 @@ int main(int argc, char *argv[]) {
   char hash[VNC_HASH_BUF_SIZE] = {0};
 
   static const struct option long_opts[] = {
-      {"help",    no_argument, NULL, 'h'},
+      {"help", no_argument, NULL, 'h'},
       {"version", no_argument, NULL, 1000},
-      {NULL, 0, NULL, 0}
-  };
+      {NULL, 0, NULL, 0}};
 
   while ((opt = getopt_long(argc, argv, "h", long_opts, NULL)) != -1) {
     switch (opt) {
@@ -179,7 +178,7 @@ int main(int argc, char *argv[]) {
   }
   (void)explicit_bzero(password, sizeof(password));
 
-  if (atomic_write_passwd(&syscall_ops_default, passwd_path, hash) < 0) {
+  if (atomic_write_passwd_file(&syscall_ops_default, passwd_path, hash) < 0) {
     (void)fprintf(stderr, "Failed to write %s: %s\n", passwd_path,
                   strerror(errno));
     (void)explicit_bzero(hash, sizeof(hash));

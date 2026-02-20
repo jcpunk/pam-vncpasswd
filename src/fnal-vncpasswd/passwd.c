@@ -149,10 +149,12 @@ int hash_password(const struct syscall_ops *ops, const char *password,
     return -1;
   }
 
-  if (generate_salt(ops, salt, sizeof(salt)) < 0)
+  if (generate_salt(ops, salt, sizeof(salt)) < 0) {
+    (void)explicit_bzero(&salt, sizeof(&salt));
     return -1;
+  }
 
-  memset(&cd, 0, sizeof(cd));
+  (void)explicit_bzero(&cd, sizeof(&cd));
   result = ops->crypt_r(password, salt, &cd);
 
   /*
@@ -162,15 +164,15 @@ int hash_password(const struct syscall_ops *ops, const char *password,
    * Both mean the hash is unusable and must not be written to disk.
    */
   if (!result || result[0] == '*') {
-    memset(salt, 0, sizeof(salt));
-    memset(&cd, 0, sizeof(cd));
+    (void)explicit_bzero(&salt, sizeof(&salt));
+    (void)explicit_bzero(&cd, sizeof(&cd));
     errno = EINVAL;
     return -1;
   }
 
   n = snprintf(hash_buf, hash_len, "%s", result);
-  memset(salt, 0, sizeof(salt));
-  memset(&cd, 0, sizeof(cd));
+  (void)explicit_bzero(&salt, sizeof(&salt));
+  (void)explicit_bzero(&cd, sizeof(&cd));
 
   if (n < 0 || (size_t)n >= hash_len) {
     errno = ERANGE;
@@ -276,8 +278,8 @@ int ensure_vnc_dir(const struct syscall_ops *ops, const char *path) {
  * ============================================================================
  */
 
-int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
-                        const char *hash) {
+int atomic_write_passwd_file(const struct syscall_ops *ops, const char *path,
+                             const char *hash) {
   char tmp_path[PATH_MAX];
   int fd;
   ssize_t written;

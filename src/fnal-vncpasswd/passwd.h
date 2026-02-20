@@ -4,13 +4,6 @@
  * Declares the testable core: algorithm selection, hashing, directory
  * creation, and atomic file write.  Terminal I/O and argument parsing
  * are private to main.c and are not declared here.
- *
- * COST PARAMETERS:
- * crypt_gensalt_ra(prefix, 0, ...) selects libxcrypt's compiled-in
- * defaults for each algorithm.  These match the values shadow-utils
- * applies when YESCRYPT_COST_FACTOR / SHA_CRYPT_MAX_ROUNDS are absent
- * from login.defs, so there is no need to re-parse those directives here.
- * ENCRYPT_METHOD is still honoured via get_crypt_prefix().
  */
 
 #ifndef FNAL_VNCPASSWD_PASSWD_H
@@ -55,9 +48,9 @@ int get_passwd_path(const struct syscall_ops *ops, uid_t uid, char *buf,
  * @hash_buf: Output buffer; VNC_HASH_BUF_SIZE bytes is always sufficient
  * @hash_len: Size of @hash_buf
  *
- * The algorithm is libxcrypt's compiled-in default (yescrypt on any
- * modern build).  NULL is passed as the prefix to crypt_gensalt_ra(3),
- * which the library documents as "use the preferred algorithm".
+ * The algorithm is libxcrypt's compiled-in default. Thus NULL is passed as the
+ * prefix to crypt_gensalt_ra(3), which the library documents as "use the
+ * preferred algorithm".
  *
  * Returns: 0 on success, -1 on error (errno set)
  */
@@ -88,7 +81,7 @@ int ensure_vnc_dir(const struct syscall_ops *ops, const char *path);
  */
 
 /**
- * atomic_write_passwd - Atomically replace the VNC password file
+ * atomic_write_passwd_file - Atomically replace the VNC password file
  * @ops:  Syscall operations (mkstemp, fchmod, write, fsync, rename, unlink)
  * @path: Destination path for the password file
  * @hash: crypt(3) hash string to write
@@ -103,7 +96,7 @@ int ensure_vnc_dir(const struct syscall_ops *ops, const char *path);
  *
  * Returns: 0 on success, -1 on error (errno set)
  */
-int atomic_write_passwd(const struct syscall_ops *ops, const char *path,
-                        const char *hash);
+int atomic_write_passwd_file(const struct syscall_ops *ops, const char *path,
+                             const char *hash);
 
 #endif /* FNAL_VNCPASSWD_PASSWD_H */
